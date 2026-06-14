@@ -1,0 +1,23 @@
+# FocusLens default configuration.
+# Override by passing --config path/to/your.yaml (values are deep-merged over these).
+
+capture:
+  camera_index: 0
+  width: 1280
+  height: 720
+  target_fps: 30
+  buffer_seconds: 5.0   # circular frame buffer length (plan.md §4)
+
+face_mesh:
+  max_num_faces: 1
+  refine_landmarks: true       # required for iris landmarks
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+
+viz:
+  draw_tesselation: false      # off by default — points-only is faster & less noisy
+  draw_iris: true
+  show_fps: true
+
+logging:
+  level: INFO
