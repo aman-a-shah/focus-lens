@@ -19,11 +19,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Gaze model training (Phase 4) — heavy, not needed for live/simulate.
+train = [
+    "torch>=2.2",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "black>=24.0",
     "pre-commit>=3.7",
+    "torch>=2.2",
 ]
 
 [project.scripts]

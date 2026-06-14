@@ -14,6 +14,11 @@ Early scaffold. Current phases:
 - **Phase 1 — Webcam + Face Mesh spike** ✅ live landmark/iris overlay with FPS
 - **Phase 2 — Feature extractors** ✅ EAR, blink detection, head pose, naive gaze → per-frame
   feature stream (console + CSV)
+- **Phase 3 — Walking skeleton** ✅ 200ms windowing → rule classifier (FOCUSED/DRIFTING/
+  DISTRACTED/FATIGUED) → debounce → desktop notifications → SQLite session log; offline
+  `simulate` driver
+- **Phase 4 — Gaze regression pipeline** ✅ synthetic + MPIIFaceGaze datasets, MLP & CNN
+  architectures, angular-error eval, checkpointing, latency (`train-gaze`)
 
 ## Setup
 
@@ -32,8 +37,19 @@ focuslens live --camera 1              # pick a different camera index
 focuslens live --source clip.mp4       # replay a video file instead of the camera
 focuslens live --no-window --snapshot out.png --max-frames 30   # headless, save one frame
 focuslens live --features-csv feats.csv --print-features        # stream per-frame features
+focuslens live --db session.sqlite --no-notify                  # log session, no notifications
 focuslens bench --frames 150           # measure perception throughput (no camera)
+focuslens simulate                     # scripted session through the pipeline (no camera)
+focuslens simulate --scenario 'focused:5,distracted:6,fatigued:5' --notify
+focuslens train-gaze --arch mlp        # train gaze model on synthetic data
+focuslens train-gaze --arch cnn --epochs 15
+focuslens train-gaze --arch cnn --data checkpoints/mpiifacegaze.npz   # real dataset
 ```
+
+`simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
+classification → notification → SQLite), so the end-to-end logic is verifiable without a
+webcam. `train-gaze` defaults to a self-contained synthetic gaze dataset; for the real data
+run `python scripts/download_mpiifacegaze.py` (manual registration required).
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy

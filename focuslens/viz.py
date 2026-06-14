@@ -1,7 +1,7 @@
-"""Debug overlay rendering for the Phase 1 spike.
+"""Debug overlay rendering for the live runtime.
 
-Draws landmarks, iris centers, an FPS readout and a "no face" banner onto a copy of the
-frame. Pure drawing — no capture or tracking logic lives here.
+Draws landmarks, iris centers, an FPS readout, a "no face" banner, and (when given) the
+current attention state onto a copy of the frame. Pure drawing — no capture/tracking logic.
 """
 
 from __future__ import annotations
@@ -15,6 +15,14 @@ _GREEN = (0, 255, 0)
 _CYAN = (255, 255, 0)
 _RED = (0, 0, 255)
 _WHITE = (255, 255, 255)
+_AMBER = (0, 191, 255)
+
+_STATE_COLORS = {
+    "FOCUSED": _GREEN,
+    "DRIFTING": _AMBER,
+    "DISTRACTED": _RED,
+    "FATIGUED": _AMBER,
+}
 
 
 def draw_overlay(
@@ -22,6 +30,7 @@ def draw_overlay(
     result: FaceMeshResult | None,
     fps: float | None = None,
     config: VizConfig | None = None,
+    state: str | None = None,
 ) -> np.ndarray:
     """Return an annotated copy of ``bgr_image``."""
     import cv2
@@ -82,6 +91,19 @@ def draw_overlay(
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             _WHITE,
+            2,
+            cv2.LINE_AA,
+        )
+
+    if state is not None:
+        color = _STATE_COLORS.get(state, _WHITE)
+        cv2.putText(
+            canvas,
+            state,
+            (w - 230, 36),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            color,
             2,
             cv2.LINE_AA,
         )

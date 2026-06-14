@@ -1,12 +1,14 @@
-"""Phase 1 live loop and benchmark: capture -> Face Mesh -> overlay.
+"""Live session loop and benchmark: capture -> Face Mesh -> features -> state -> notify/store.
 
-This is the walking-skeleton front-end. Later phases hang feature extraction and the
-classifier off the same capture/track loop (see roadmap.md Phase 3).
+The walking-skeleton runtime (roadmap Phase 3). Capture and tracking feed the same
+``AttentionPipeline`` the offline simulator uses, so live and simulated runs share one code
+path for windowing, classification, notification and SQLite logging.
 """
 
 from __future__ import annotations
 
 import csv
+import time
 from collections import deque
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -16,6 +18,9 @@ from .config import Config
 from .face_mesh import FaceMeshTracker
 from .features import FeatureExtractor, FrameFeatures
 from .logging import get_logger
+from .notify import Notifier
+from .pipeline import AttentionPipeline
+from .session import SessionStore
 from .viz import draw_overlay
 
 log = get_logger(__name__)
@@ -48,13 +53,16 @@ def run_live(
     snapshot_path: str | None = None,
     features_csv: str | None = None,
     print_features: bool = False,
+    db_path: str | None = "focuslens.sqlite",
+    notify: bool = True,
 ) -> None:
-    """Capture, track faces, extract features, and render the debug overlay.
+    """Capture, track, extract features, classify state, notify, and log the session.
 
     ``source`` overrides the configured camera index — pass a video file path to replay a
     clip headlessly. ``max_frames`` stops after N frames; ``snapshot_path`` saves the first
-    annotated frame that contains a face. ``features_csv`` streams per-frame features to a
-    CSV file; ``print_features`` echoes a throttled feature line to the console.
+    annotated frame with a face. ``features_csv`` streams per-frame features; ``print_features``
+    echoes a throttled line. ``db_path`` (None to disable) is the SQLite session log; ``notify``
+    toggles desktop notifications.
     """
     import cv2
 
@@ -62,9 +70,10 @@ def run_live(
     buffer = FrameBuffer(config.capture.buffer_seconds, config.capture.target_fps)
     fps_meter = _FpsMeter()
     extractor = FeatureExtractor()
-    window = "FocusLens — Phase 1/2 (q/Esc to quit)"
+    window = "FocusLens — live (q/Esc to quit)"
     snapped = False
     last_print = -1.0
+    current_state: str | None = None
     n = 0
 
     with ExitStack() as stack:
@@ -77,6 +86,15 @@ def run_live(
             )
         )
         tracker = stack.enter_context(FaceMeshTracker(config.face_mesh))
+
+        store = None
+        session_id = None
+        if db_path is not None:
+            store = stack.enter_context(SessionStore(db_path))
+            session_id = store.start_session(time.time())
+        pipeline = AttentionPipeline(
+            store=store, session_id=session_id, notifier=Notifier(enabled=notify)
+        )
 
         csv_writer = None
         if features_csv is not None:
@@ -91,6 +109,12 @@ def run_live(
             features = extractor.extract(result, frame.image.shape, frame.timestamp)
             n += 1
 
+            out = pipeline.process_frame(features)
+            if out is not None:
+                current_state = str(out.state)
+                if out.transitioned:
+                    log.info("State -> %s @ %.1fs", current_state, out.window.t_end)
+
             if csv_writer is not None:
                 csv_writer.writerow(features.to_row())
             if print_features and frame.timestamp - last_print >= _CONSOLE_PRINT_INTERVAL_S:
@@ -98,7 +122,7 @@ def run_live(
                 last_print = frame.timestamp
 
             if show_window or (snapshot_path and not snapped):
-                annotated = draw_overlay(frame.image, result, fps, config.viz)
+                annotated = draw_overlay(frame.image, result, fps, config.viz, state=current_state)
                 if snapshot_path and not snapped and result is not None:
                     cv2.imwrite(snapshot_path, annotated)
                     snapped = True
@@ -110,6 +134,10 @@ def run_live(
 
             if max_frames is not None and n >= max_frames:
                 break
+
+        pipeline.finish()
+        if store is not None and session_id is not None:
+            store.end_session(session_id, time.time())
 
     if show_window:
         cv2.destroyAllWindows()
