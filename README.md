@@ -24,13 +24,19 @@ pip install -e ".[dev]"
 ## Usage
 
 ```bash
-focuslens --version          # print version
-focuslens live               # live webcam overlay (Face Mesh landmarks + iris + FPS)
-focuslens live --camera 1    # pick a different camera index
+focuslens --version                    # print version
+focuslens live                         # live webcam overlay (landmarks + iris + FPS)
+focuslens live --camera 1              # pick a different camera index
+focuslens live --source clip.mp4       # replay a video file instead of the camera
+focuslens live --no-window --snapshot out.png --max-frames 30   # headless, save one frame
+focuslens bench --frames 150           # measure perception throughput (no camera)
 ```
 
 Press `q` or `Esc` in the overlay window to quit. On first run the MediaPipe
 `face_landmarker.task` model (~3.6 MB) is auto-downloaded into `checkpoints/` (gitignored).
+
+`bench` reports mean FPS and p50/p95 latency for the Face Mesh stage. Reference run
+(Apple Silicon, CPU): **~104 FPS mean, 8.9 ms p50** — comfortably past Phase 1's ≥20 FPS bar.
 
 > Uses MediaPipe's Tasks API (`FaceLandmarker`); the legacy `solutions.face_mesh` module is
 > absent in recent MediaPipe builds. The landmarker emits 478 landmarks including iris.

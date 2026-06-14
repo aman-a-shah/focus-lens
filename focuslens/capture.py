@@ -56,42 +56,50 @@ class FrameBuffer:
 
 
 class WebcamCapture:
-    """Context manager around an OpenCV camera.
+    """Context manager around an OpenCV capture.
 
-    Usage::
+    ``source`` is a camera index (``int``) or a path to a video file (``str``). Width/height/
+    fps hints are only applied to live cameras. Usage::
 
-        with WebcamCapture(camera_index=0) as cap:
+        with WebcamCapture(source=0) as cap:
             for frame in cap.frames():
                 ...
     """
 
     def __init__(
         self,
-        camera_index: int = 0,
+        source: int | str = 0,
         width: int = 1280,
         height: int = 720,
         target_fps: int = 30,
     ) -> None:
-        self.camera_index = camera_index
+        self.source = source
         self.width = width
         self.height = height
         self.target_fps = target_fps
         self._cap = None
 
+    @property
+    def is_camera(self) -> bool:
+        return isinstance(self.source, int)
+
     def __enter__(self) -> WebcamCapture:
         import cv2
 
-        cap = cv2.VideoCapture(self.camera_index)
+        cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
-            raise RuntimeError(
-                f"Could not open camera index {self.camera_index}. "
-                "Is another app using the webcam, or is the index wrong?"
-            )
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+            if self.is_camera:
+                raise RuntimeError(
+                    f"Could not open camera index {self.source}. "
+                    "Is another app using the webcam, or is the index wrong?"
+                )
+            raise RuntimeError(f"Could not open video source {self.source!r} (missing file?)")
+        if self.is_camera:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            cap.set(cv2.CAP_PROP_FPS, self.target_fps)
         self._cap = cap
-        log.info("Opened camera %d (%dx%d)", self.camera_index, self.width, self.height)
+        log.info("Opened source %r", self.source)
         return self
 
     def frames(self) -> Iterator[Any]:
@@ -102,12 +110,14 @@ class WebcamCapture:
         while True:
             ok, image = self._cap.read()
             if not ok:
-                log.warning("Camera read failed; stopping capture")
+                # Expected at end-of-file; only noteworthy for a live camera.
+                if self.is_camera:
+                    log.warning("Camera read failed; stopping capture")
                 break
             yield Frame(timestamp=time.monotonic(), image=image)
 
     def __exit__(self, *exc: object) -> None:
         if self._cap is not None:
             self._cap.release()
-            log.info("Released camera %d", self.camera_index)
+            log.info("Released source %r", self.source)
             self._cap = None
