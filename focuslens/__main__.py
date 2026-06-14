@@ -23,6 +23,10 @@ def _build_parser() -> argparse.ArgumentParser:
     live.add_argument("--no-window", action="store_true", help="Run without the preview window")
     live.add_argument("--max-frames", type=int, default=None, help="Stop after N frames")
     live.add_argument("--snapshot", default=None, help="Save the first annotated face frame here")
+    live.add_argument("--features-csv", default=None, help="Stream per-frame features to this CSV")
+    live.add_argument(
+        "--print-features", action="store_true", help="Echo throttled feature lines to console"
+    )
 
     bench = sub.add_parser("bench", help="Benchmark Face Mesh throughput offline (no camera)")
     bench.add_argument("--frames", type=int, default=120, help="Number of frames to time")
@@ -48,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
                 show_window=not args.no_window,
                 max_frames=args.max_frames,
                 snapshot_path=args.snapshot,
+                features_csv=args.features_csv,
+                print_features=args.print_features,
             )
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)

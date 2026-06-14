@@ -6,12 +6,15 @@ classifier off the same capture/track loop (see roadmap.md Phase 3).
 
 from __future__ import annotations
 
+import csv
 from collections import deque
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 from .capture import FrameBuffer, WebcamCapture
 from .config import Config
 from .face_mesh import FaceMeshTracker
+from .features import FeatureExtractor, FrameFeatures
 from .logging import get_logger
 from .viz import draw_overlay
 
@@ -34,42 +37,65 @@ class _FpsMeter:
         return (len(self._ts) - 1) / span if span > 0 else 0.0
 
 
+_CONSOLE_PRINT_INTERVAL_S = 0.5
+
+
 def run_live(
     config: Config,
     source: int | str | None = None,
     show_window: bool = True,
     max_frames: int | None = None,
     snapshot_path: str | None = None,
+    features_csv: str | None = None,
+    print_features: bool = False,
 ) -> None:
-    """Capture, track faces, and render the debug overlay until the user quits.
+    """Capture, track faces, extract features, and render the debug overlay.
 
     ``source`` overrides the configured camera index — pass a video file path to replay a
     clip headlessly. ``max_frames`` stops after N frames; ``snapshot_path`` saves the first
-    annotated frame that contains a face (useful for verifying without a GUI).
+    annotated frame that contains a face. ``features_csv`` streams per-frame features to a
+    CSV file; ``print_features`` echoes a throttled feature line to the console.
     """
     import cv2
 
     src = source if source is not None else config.capture.camera_index
     buffer = FrameBuffer(config.capture.buffer_seconds, config.capture.target_fps)
     fps_meter = _FpsMeter()
-    window = "FocusLens — Phase 1 (q/Esc to quit)"
+    extractor = FeatureExtractor()
+    window = "FocusLens — Phase 1/2 (q/Esc to quit)"
     snapped = False
+    last_print = -1.0
     n = 0
 
-    with (
-        WebcamCapture(
-            source=src,
-            width=config.capture.width,
-            height=config.capture.height,
-            target_fps=config.capture.target_fps,
-        ) as cap,
-        FaceMeshTracker(config.face_mesh) as tracker,
-    ):
+    with ExitStack() as stack:
+        cap = stack.enter_context(
+            WebcamCapture(
+                source=src,
+                width=config.capture.width,
+                height=config.capture.height,
+                target_fps=config.capture.target_fps,
+            )
+        )
+        tracker = stack.enter_context(FaceMeshTracker(config.face_mesh))
+
+        csv_writer = None
+        if features_csv is not None:
+            fh = stack.enter_context(open(features_csv, "w", newline=""))
+            csv_writer = csv.writer(fh)
+            csv_writer.writerow(FrameFeatures.header())
+
         for frame in cap.frames():
             buffer.append(frame)
             result = tracker.process(frame.image, timestamp_ms=int(frame.timestamp * 1000))
             fps = fps_meter.tick(frame.timestamp)
+            features = extractor.extract(result, frame.image.shape, frame.timestamp)
             n += 1
+
+            if csv_writer is not None:
+                csv_writer.writerow(features.to_row())
+            if print_features and frame.timestamp - last_print >= _CONSOLE_PRINT_INTERVAL_S:
+                print(features.console_line())
+                last_print = frame.timestamp
 
             if show_window or (snapshot_path and not snapped):
                 annotated = draw_overlay(frame.image, result, fps, config.viz)

@@ -12,6 +12,8 @@ Early scaffold. Current phases:
 
 - **Phase 0 — Scaffold** ✅ repo, deps, config, logging, tests
 - **Phase 1 — Webcam + Face Mesh spike** ✅ live landmark/iris overlay with FPS
+- **Phase 2 — Feature extractors** ✅ EAR, blink detection, head pose, naive gaze → per-frame
+  feature stream (console + CSV)
 
 ## Setup
 
@@ -29,8 +31,15 @@ focuslens live                         # live webcam overlay (landmarks + iris +
 focuslens live --camera 1              # pick a different camera index
 focuslens live --source clip.mp4       # replay a video file instead of the camera
 focuslens live --no-window --snapshot out.png --max-frames 30   # headless, save one frame
+focuslens live --features-csv feats.csv --print-features        # stream per-frame features
 focuslens bench --frames 150           # measure perception throughput (no camera)
 ```
+
+Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
+last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy
+(x/y iris offset, placeholder for the trained gaze head). Head-pose angles are uncalibrated
+absolute estimates; the gaze proxy's neutral point is per-person and gets removed by
+calibration in Phase 5.
 
 Press `q` or `Esc` in the overlay window to quit. On first run the MediaPipe
 `face_landmarker.task` model (~3.6 MB) is auto-downloaded into `checkpoints/` (gitignored).
