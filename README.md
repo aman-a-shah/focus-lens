@@ -19,6 +19,9 @@ Early scaffold. Current phases:
   `simulate` driver
 - **Phase 4 — Gaze regression pipeline** ✅ synthetic + MPIIFaceGaze datasets, MLP & CNN
   architectures, angular-error eval, checkpointing, latency (`train-gaze`)
+- **Phase 5 — Personal calibration** ✅ on-screen 5/9-point routine → fine-tune the population
+  gaze head into a per-user checkpoint (`calibrate`), swapped into the live pipeline
+  (`live --gaze-model`); reflection-masking + low-light TTA for the iris signal
 
 ## Setup
 
@@ -44,6 +47,8 @@ focuslens simulate --scenario 'focused:5,distracted:6,fatigued:5' --notify
 focuslens train-gaze --arch mlp        # train gaze model on synthetic data
 focuslens train-gaze --arch cnn --epochs 15
 focuslens train-gaze --arch cnn --data checkpoints/mpiifacegaze.npz   # real dataset
+focuslens calibrate --user alice       # on-screen calibration -> per-user gaze checkpoint
+focuslens live --gaze-model checkpoints/gaze_user_alice.pt           # use the calibrated head
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
@@ -54,8 +59,9 @@ run `python scripts/download_mpiifacegaze.py` (manual registration required).
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy
 (x/y iris offset, placeholder for the trained gaze head). Head-pose angles are uncalibrated
-absolute estimates; the gaze proxy's neutral point is per-person and gets removed by
-calibration in Phase 5.
+absolute estimates; the gaze proxy's neutral point is per-person and is recentred by
+`calibrate` (Phase 5) — a ~2-min on-screen routine that fine-tunes the gaze head into a
+per-user checkpoint; `live --gaze-model` then emits calibrated on-screen gaze in the same units.
 
 Press `q` or `Esc` in the overlay window to quit. On first run the MediaPipe
 `face_landmarker.task` model (~3.6 MB) is auto-downloaded into `checkpoints/` (gitignored).

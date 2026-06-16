@@ -30,6 +30,9 @@ def _build_parser() -> argparse.ArgumentParser:
     live.add_argument("--db", default="focuslens.sqlite", help="SQLite session log path")
     live.add_argument("--no-db", action="store_true", help="Disable SQLite session logging")
     live.add_argument("--no-notify", action="store_true", help="Disable desktop notifications")
+    live.add_argument(
+        "--gaze-model", default=None, help="Calibrated per-user gaze checkpoint (Phase 5)"
+    )
 
     bench = sub.add_parser("bench", help="Benchmark Face Mesh throughput offline (no camera)")
     bench.add_argument("--frames", type=int, default=120, help="Number of frames to time")
@@ -55,6 +58,14 @@ def _build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--seed", type=int, default=0)
     tg.add_argument("--data", default=None, help="Path to a normalized MPIIFaceGaze .npz")
 
+    cal = sub.add_parser(
+        "calibrate", help="Personal gaze calibration: on-screen routine + fine-tune"
+    )
+    cal.add_argument("--user", default="user", help="User id for the saved checkpoint")
+    cal.add_argument("--nine-point", action="store_true", help="9-point grid (default: 5-point)")
+    cal.add_argument("--source", default=None, help="Camera index or video file")
+    cal.add_argument("--base", default=None, help="Base gaze checkpoint (default: gaze_mlp.pt)")
+
     return parser
 
 
@@ -79,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 print_features=args.print_features,
                 db_path=None if args.no_db else args.db,
                 notify=not args.no_notify,
+                gaze_model=args.gaze_model,
             )
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -128,6 +140,27 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
         )
         print(result.summary())
+        return 0
+
+    if args.command == "calibrate":
+        from .gaze.calibrate_session import run_calibration
+
+        source: int | str | None = args.source
+        if isinstance(source, str) and source.isdigit():
+            source = int(source)
+        try:
+            result = run_calibration(
+                config,
+                user_id=args.user,
+                nine_point=args.nine_point,
+                source=source,
+                base_checkpoint=args.base,
+            )
+        except (RuntimeError, FileNotFoundError, KeyboardInterrupt) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(result.summary())
+        print(f"Run: focuslens live --gaze-model {result.checkpoint}")
         return 0
 
     # No subcommand: print a short usage hint.

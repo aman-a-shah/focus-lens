@@ -11,6 +11,7 @@ The extractor is stateful only through its ``BlinkDetector`` (one instance per s
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -19,6 +20,9 @@ from .blink import BlinkDetector
 from .ear import eye_aspect_ratio
 from .gaze import naive_gaze
 from .head_pose import HeadPoseEstimator
+
+if TYPE_CHECKING:
+    from ..gaze.predictor import GazePredictor
 
 _NAN = float("nan")
 
@@ -64,17 +68,29 @@ class FrameFeatures:
 
 
 class FeatureExtractor:
-    def __init__(self, blink_detector: BlinkDetector | None = None) -> None:
+    def __init__(
+        self,
+        blink_detector: BlinkDetector | None = None,
+        gaze_predictor: GazePredictor | None = None,
+    ) -> None:
         self.blink = blink_detector or BlinkDetector()
         self.head_pose = HeadPoseEstimator()
+        # None -> emit the naive iris-offset proxy unchanged (Phase 2). A calibrated predictor
+        # (Phase 5) remaps it to on-screen gaze in the same [-1, 1] convention.
+        self.gaze_predictor = gaze_predictor
 
     def extract(
         self,
         result: FaceMeshResult | None,
         image_shape: tuple[int, int],
         timestamp: float,
+        image: np.ndarray | None = None,
     ) -> FrameFeatures:
-        """Produce features for one frame. ``image_shape`` is (height, width)."""
+        """Produce features for one frame. ``image_shape`` is (height, width).
+
+        ``image`` is the optional source frame (BGR or grayscale); when given it enables
+        reflection-masked iris centres (roadmap Phase 5).
+        """
         height, width = image_shape[0], image_shape[1]
 
         if result is None:
@@ -103,7 +119,12 @@ class FeatureExtractor:
         pose = self.head_pose.estimate(points_px, width, height)
         yaw, pitch, roll = (pose.yaw, pose.pitch, pose.roll) if pose else (_NAN, _NAN, _NAN)
 
-        gaze = naive_gaze(points_px, result.has_iris)
+        gray = (
+            None if image is None else (image if image.ndim == 2 else image[..., :3].mean(axis=2))
+        )
+        gaze = naive_gaze(points_px, result.has_iris, gray)
+        if self.gaze_predictor is not None and gaze is not None:
+            gaze = self.gaze_predictor.predict(gaze, pose)
         gaze_x, gaze_y = (gaze.x, gaze.y) if gaze else (_NAN, _NAN)
 
         return FrameFeatures(

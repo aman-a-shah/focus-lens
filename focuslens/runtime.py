@@ -55,6 +55,7 @@ def run_live(
     print_features: bool = False,
     db_path: str | None = "focuslens.sqlite",
     notify: bool = True,
+    gaze_model: str | None = None,
 ) -> None:
     """Capture, track, extract features, classify state, notify, and log the session.
 
@@ -62,14 +63,22 @@ def run_live(
     clip headlessly. ``max_frames`` stops after N frames; ``snapshot_path`` saves the first
     annotated frame with a face. ``features_csv`` streams per-frame features; ``print_features``
     echoes a throttled line. ``db_path`` (None to disable) is the SQLite session log; ``notify``
-    toggles desktop notifications.
+    toggles desktop notifications. ``gaze_model`` points at a calibrated per-user gaze
+    checkpoint (roadmap Phase 5); without it the naive proxy is used.
     """
     import cv2
 
     src = source if source is not None else config.capture.camera_index
     buffer = FrameBuffer(config.capture.buffer_seconds, config.capture.target_fps)
     fps_meter = _FpsMeter()
-    extractor = FeatureExtractor()
+
+    predictor = None
+    if gaze_model is not None:
+        from .gaze.predictor import CalibratedGazePredictor
+
+        predictor = CalibratedGazePredictor.from_checkpoint(gaze_model)
+        log.info("Using calibrated gaze head: %s", gaze_model)
+    extractor = FeatureExtractor(gaze_predictor=predictor)
     window = "FocusLens — live (q/Esc to quit)"
     snapped = False
     last_print = -1.0
@@ -106,7 +115,9 @@ def run_live(
             buffer.append(frame)
             result = tracker.process(frame.image, timestamp_ms=int(frame.timestamp * 1000))
             fps = fps_meter.tick(frame.timestamp)
-            features = extractor.extract(result, frame.image.shape, frame.timestamp)
+            features = extractor.extract(
+                result, frame.image.shape, frame.timestamp, image=frame.image
+            )
             n += 1
 
             out = pipeline.process_frame(features)

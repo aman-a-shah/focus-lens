@@ -20,6 +20,7 @@ from .landmarks import (
     RIGHT_EYE_TOP_BOTTOM,
     RIGHT_IRIS,
 )
+from .robust import robust_iris_center
 
 _EPS = 1e-6
 
@@ -35,12 +36,15 @@ def _eye_offset(
     corners: tuple[int, int],
     top_bottom: tuple[int, int],
     iris: list[int],
+    gray: np.ndarray | None,
 ) -> tuple[float, float]:
     outer = points_px[corners[0]]
     inner = points_px[corners[1]]
     top = points_px[top_bottom[0]]
     bottom = points_px[top_bottom[1]]
-    iris_center = points_px[iris].mean(axis=0)
+    # Specular-robust centre (Phase 5): drop iris points sitting on glasses glare when a
+    # grayscale frame is available; otherwise fall back to the plain landmark centroid.
+    iris_center = robust_iris_center(points_px, iris, gray)
 
     eye_center = (outer + inner) / 2.0
     half_width = np.linalg.norm(inner - outer) / 2.0
@@ -50,10 +54,16 @@ def _eye_offset(
     return float(gx), float(gy)
 
 
-def naive_gaze(points_px: np.ndarray, has_iris: bool) -> GazeProxy | None:
-    """Average iris-in-socket offset across both eyes; None when iris isn't available."""
+def naive_gaze(
+    points_px: np.ndarray, has_iris: bool, gray: np.ndarray | None = None
+) -> GazeProxy | None:
+    """Average iris-in-socket offset across both eyes; None when iris isn't available.
+
+    ``gray`` is the optional full-frame grayscale image; when given, iris centres are computed
+    with reflection masking (roadmap Phase 5).
+    """
     if not has_iris:
         return None
-    rx, ry = _eye_offset(points_px, RIGHT_EYE_CORNERS, RIGHT_EYE_TOP_BOTTOM, RIGHT_IRIS)
-    lx, ly = _eye_offset(points_px, LEFT_EYE_CORNERS, LEFT_EYE_TOP_BOTTOM, LEFT_IRIS)
+    rx, ry = _eye_offset(points_px, RIGHT_EYE_CORNERS, RIGHT_EYE_TOP_BOTTOM, RIGHT_IRIS, gray)
+    lx, ly = _eye_offset(points_px, LEFT_EYE_CORNERS, LEFT_EYE_TOP_BOTTOM, LEFT_IRIS, gray)
     return GazeProxy(x=(rx + lx) / 2.0, y=(ry + ly) / 2.0)
