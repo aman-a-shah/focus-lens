@@ -105,6 +105,12 @@ def _build_parser() -> argparse.ArgumentParser:
     cu.add_argument("--epochs", type=int, default=8)
     cu.add_argument("--seq-len", type=int, default=30)
 
+    tt = sub.add_parser("train-timing", help="Train the Cox intervention-timing model (Phase 9)")
+    tt.add_argument("--epochs", type=int, default=300)
+    tt.add_argument("--n", type=int, default=800, help="Synthetic survival sample count")
+    tt.add_argument("--lead", type=float, default=20.0, help="Target lead time (s) before drift")
+    tt.add_argument("--seed", type=int, default=0)
+
     return parser
 
 
@@ -266,6 +272,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         print(f"updated on {n} labelled sequences -> {path}")
+        return 0
+
+    if args.command == "train-timing":
+        from .intervention.train import train_timing
+
+        result = train_timing(n=args.n, epochs=args.epochs, target_lead_s=args.lead, seed=args.seed)
+        print(result.summary())
         return 0
 
     # No subcommand: print a short usage hint.

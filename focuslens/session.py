@@ -60,6 +60,15 @@ CREATE TABLE IF NOT EXISTS window_labels (
     label       TEXT NOT NULL,
     source      TEXT NOT NULL
 );
+-- Phase 9: hazard-timer interventions + "was this helpful?" feedback (helpful: 1/0/NULL).
+CREATE TABLE IF NOT EXISTS interventions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  INTEGER NOT NULL REFERENCES sessions(id),
+    t           REAL NOT NULL,
+    risk        REAL NOT NULL,
+    fired       INTEGER NOT NULL,
+    helpful     INTEGER
+);
 """
 
 
@@ -225,6 +234,35 @@ class SessionStore:
         )
         row = cur.fetchone()
         return (str(row[0]), str(row[1])) if row else None
+
+    # ---- Phase 9: intervention log + feedback ------------------------------------------------
+
+    def log_intervention(self, session_id: int, t: float, risk: float, fired: bool = True) -> int:
+        """Record a (fired) intervention; returns its id so feedback can attach to it."""
+        cur = self._conn.execute(
+            "INSERT INTO interventions(session_id, t, risk, fired, helpful) VALUES (?,?,?,?,NULL)",
+            (session_id, t, risk, int(fired)),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def record_feedback(self, intervention_id: int, helpful: bool) -> None:
+        """Attach a "was this helpful? y/n" answer to a logged intervention."""
+        self._conn.execute(
+            "UPDATE interventions SET helpful = ? WHERE id = ?", (int(helpful), intervention_id)
+        )
+        self._conn.commit()
+
+    def get_interventions(self, session_id: int) -> list[tuple[int, float, float, int, int | None]]:
+        """Rows of (id, t, risk, fired, helpful) for a session, in time order."""
+        cur = self._conn.execute(
+            "SELECT id, t, risk, fired, helpful FROM interventions WHERE session_id = ? ORDER BY t",
+            (session_id,),
+        )
+        return [
+            (int(i), float(t), float(r), int(f), None if h is None else int(h))
+            for i, t, r, f, h in cur.fetchall()
+        ]
 
     def window_count(self, session_id: int) -> int:
         cur = self._conn.execute("SELECT COUNT(*) FROM windows WHERE session_id = ?", (session_id,))

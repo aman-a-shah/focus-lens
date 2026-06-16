@@ -71,6 +71,7 @@ class AttentionPipeline:
         window_s: float = 0.2,
         sequence_length: int = 30,
         debounce_windows: int = 2,
+        intervention: object | None = None,
     ) -> None:
         self.store = store
         self.session_id = session_id
@@ -79,6 +80,8 @@ class AttentionPipeline:
         self.aggregator = WindowAggregator(window_s=window_s)
         self.sequence = SequenceBuffer(length=sequence_length)
         self.debouncer = _StateDebouncer(hold=debounce_windows)
+        # Optional hazard-timer controller (Phase 9); consulted per window for pre-emptive nudges.
+        self.intervention = intervention
 
     def process_frame(self, features: FrameFeatures) -> PipelineOutput | None:
         """Feed one frame; returns a result on frames that close a window, else None."""
@@ -102,6 +105,9 @@ class AttentionPipeline:
         notified = False
         if transitioned and self.notifier is not None:
             notified = self.notifier.on_state(state, window.t_end)
+
+        if self.intervention is not None:
+            self.intervention.on_window(window, state)
 
         if self.store is not None and self.session_id is not None:
             self.store.log_window(self.session_id, window, state)

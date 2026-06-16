@@ -51,6 +51,18 @@ class Notifier:
         self._dispatch("FocusLens", _MESSAGES[state])
         return True
 
+    def on_intervention(self, timestamp: float) -> bool:
+        """Fire a pre-emptive "refocus" nudge from the hazard timer (roadmap Phase 9).
+
+        Bypasses the state-transition logic (it's risk-driven, not state-driven) but still honours
+        the cooldown so a rising hazard doesn't spam.
+        """
+        if self._last_fire_t is not None and timestamp - self._last_fire_t < self.cooldown_s:
+            return False
+        self._last_fire_t = timestamp
+        self._dispatch("FocusLens", "Heads-up: you're about to drift — refocus now.")
+        return True
+
     def _dispatch(self, title: str, message: str) -> None:
         log.info("NOTIFY: %s — %s", title, message)
         if not self.enabled:

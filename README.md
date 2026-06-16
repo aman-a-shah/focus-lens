@@ -31,6 +31,9 @@ Early scaffold. Current phases:
 - **Phase 8 — Continual learning** ✅ EWC (per-task Fisher) + reservoir experience-replay buffer,
   post-session fine-tune with checkpoint rotation (`continual-update`); backward-transfer ablation
   (`continual-eval`) — over 10 sessions, **EWC+replay forgets 0.7% vs naive's 69%**
+- **Phase 9 — Intervention timing** ✅ Cox proportional-hazards model over trend features decides
+  *when* to nudge (`train-timing`), fired through the notification layer with a user-tunable hazard
+  threshold + helpfulness feedback — **C-index 0.83, fires ~22s before drift** (10–30s target)
 
 ## Setup
 
@@ -64,6 +67,7 @@ focuslens train-focus --db session.sqlite                           # train on l
 focuslens live --focus-model checkpoints/focusnet.pt                # learned classifier in the loop
 focuslens continual-eval --sessions 10 # EWC+replay vs naive vs frozen forgetting ablation
 focuslens continual-update --db session.sqlite                      # post-session fine-tune (EWC+replay)
+focuslens train-timing                 # fit the Cox intervention-timing model (C-index + lead)
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
@@ -85,6 +89,13 @@ forgetting earlier sessions; Fisher + buffer ride along in rotated per-session c
 `continual-eval` runs the EWC+replay vs naive vs frozen ablation over a sequence of synthetic
 sessions and reports backward transfer — over 10 sessions EWC+replay forgets ~0.7% where naive
 fine-tuning forgets ~69%.
+
+Intervention timing (Phase 9): a Cox proportional-hazards model scores per-moment distraction
+*risk* from trend features (60s distraction fraction, gaze velocity, blink rate, head motion,
+time-of-day, session length); `train-timing` fits it, reports the **C-index**, and calibrates a
+user-tunable hazard threshold so the nudge fires ~20s before you'd notice you drifted. Firing
+runs through the notification layer, and each intervention is logged with a "was this helpful?"
+slot (`record_feedback`) for later tuning. Self-contained — no `lifelines` dependency.
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy
