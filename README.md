@@ -28,6 +28,9 @@ Early scaffold. Current phases:
 - **Phase 7 — PersonalFocusNet** ✅ 1D-conv + temporal-attention sequence model with an
   uncertainty head, trained on the Phase-6 labels (`train-focus`); swaps into the live pipeline
   behind the rule-classifier interface (`live --focus-model`) with cold-start + uncertainty gating
+- **Phase 8 — Continual learning** ✅ EWC (per-task Fisher) + reservoir experience-replay buffer,
+  post-session fine-tune with checkpoint rotation (`continual-update`); backward-transfer ablation
+  (`continual-eval`) — over 10 sessions, **EWC+replay forgets 0.7% vs naive's 69%**
 
 ## Setup
 
@@ -59,6 +62,8 @@ focuslens label --db session.sqlite    # self-supervised labels from marks + wea
 focuslens train-focus                  # train PersonalFocusNet (synthetic data by default)
 focuslens train-focus --db session.sqlite                           # train on labelled sessions
 focuslens live --focus-model checkpoints/focusnet.pt                # learned classifier in the loop
+focuslens continual-eval --sessions 10 # EWC+replay vs naive vs frozen forgetting ablation
+focuslens continual-update --db session.sqlite                      # post-session fine-tune (EWC+replay)
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
@@ -73,6 +78,13 @@ trains PersonalFocusNet on those labels; `live --focus-model` swaps it in behind
 interface as the rule classifier. A cold-start window and an uncertainty gate keep a fresh model
 ("day 1 knows nothing") from firing until it's confident. `train-focus` with no `--db` trains on
 synthetic data so the pipeline is runnable immediately.
+
+Continual learning (Phase 8): `continual-update` fine-tunes the model on each new session while
+**EWC** (per-task Fisher anchoring) and a reservoir **experience-replay** buffer guard against
+forgetting earlier sessions; Fisher + buffer ride along in rotated per-session checkpoints.
+`continual-eval` runs the EWC+replay vs naive vs frozen ablation over a sequence of synthetic
+sessions and reports backward transfer — over 10 sessions EWC+replay forgets ~0.7% where naive
+fine-tuning forgets ~69%.
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy

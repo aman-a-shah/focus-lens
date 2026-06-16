@@ -83,6 +83,28 @@ def _build_parser() -> argparse.ArgumentParser:
     tf.add_argument("--seq-len", type=int, default=30)
     tf.add_argument("--seed", type=int, default=0)
 
+    ce = sub.add_parser(
+        "continual-eval", help="EWC vs naive vs frozen forgetting ablation (Phase 8)"
+    )
+    ce.add_argument("--sessions", type=int, default=10, help="Number of sequential sessions")
+    ce.add_argument("--epochs", type=int, default=8)
+    ce.add_argument("--seed", type=int, default=0)
+    ce.add_argument("--curves", default=None, help="Write learning-curve JSON here")
+    ce.add_argument(
+        "--plot", default=None, help="Write a learning-curve PNG here (needs matplotlib)"
+    )
+
+    cu = sub.add_parser(
+        "continual-update", help="Post-session fine-tune with EWC + replay (Phase 8)"
+    )
+    cu.add_argument("--db", default="focuslens.sqlite", help="Labelled SQLite store")
+    cu.add_argument("--base", default="checkpoints/focusnet.pt", help="Checkpoint to update")
+    cu.add_argument(
+        "--out-dir", default="checkpoints", help="Where to write the session checkpoint"
+    )
+    cu.add_argument("--epochs", type=int, default=8)
+    cu.add_argument("--seq-len", type=int, default=30)
+
     return parser
 
 
@@ -215,6 +237,35 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
         )
         print(result.summary())
+        return 0
+
+    if args.command == "continual-eval":
+        from .focusnet.ablation import plot_learning_curves, run_ablation
+
+        report = run_ablation(n_tasks=args.sessions, epochs=args.epochs, seed=args.seed)
+        print(report.summary())
+        if args.curves:
+            print(f"curves -> {report.save_learning_curves(args.curves)}")
+        if args.plot:
+            out = plot_learning_curves(report, args.plot)
+            print(f"plot -> {out}" if out else "plot skipped (matplotlib not installed)")
+        return 0
+
+    if args.command == "continual-update":
+        from pathlib import Path
+
+        from .focusnet.continual import continual_update_from_store
+        from .session import SessionStore
+
+        try:
+            with SessionStore(args.db) as store:
+                path, n = continual_update_from_store(
+                    store, args.base, Path(args.out_dir), epochs=args.epochs, seq_len=args.seq_len
+                )
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"updated on {n} labelled sequences -> {path}")
         return 0
 
     # No subcommand: print a short usage hint.
