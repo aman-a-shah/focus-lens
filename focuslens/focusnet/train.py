@@ -19,13 +19,13 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from ..logging import get_logger
+from ..paths import CHECKPOINTS_DIR as _CHECKPOINTS
 from ..states import NUM_STATES, DistractionState, state_index
 from .dataset import SyntheticFocusDataset
 from .model import PersonalFocusNet, uncertainty_from
 
 log = get_logger(__name__)
 
-_CHECKPOINTS = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 _DISTRACTED = state_index(DistractionState.DISTRACTED)
 _EPS = 1e-6
 

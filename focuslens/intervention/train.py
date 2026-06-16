@@ -14,13 +14,12 @@ from pathlib import Path
 import numpy as np
 
 from ..logging import get_logger
+from ..paths import CHECKPOINTS_DIR as _CHECKPOINTS
 from .cox import CoxPH, concordance_index
 from .synthetic import make_cox_dataset, make_sessions
 from .timing import calibrate_threshold, lead_times
 
 log = get_logger(__name__)
-
-_CHECKPOINTS = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 
 
 @dataclass

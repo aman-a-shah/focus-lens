@@ -83,10 +83,13 @@ class CoxPH:
 
     @classmethod
     def from_state_dict(cls, d: dict) -> CoxPH:
+        def _arr(key: str) -> np.ndarray | None:
+            return np.array(d[key], dtype=np.float32) if d.get(key) is not None else None
+
         model = cls(l2=d.get("l2", 1e-3))
-        model.beta = np.array(d["beta"], dtype=np.float32) if d["beta"] is not None else None
-        model.feature_mean = np.array(d["feature_mean"], dtype=np.float32)
-        model.feature_std = np.array(d["feature_std"], dtype=np.float32)
+        model.beta = _arr("beta")
+        model.feature_mean = _arr("feature_mean")
+        model.feature_std = _arr("feature_std")
         return model
 
 

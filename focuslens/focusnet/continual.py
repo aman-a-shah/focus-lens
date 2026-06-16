@@ -40,22 +40,26 @@ class EWC:
 
     @torch.enable_grad()
     def consolidate(
-        self, model: PersonalFocusNet, x: torch.Tensor, y: torch.Tensor, batch_size: int = 64
+        self, model: PersonalFocusNet, x: torch.Tensor, y: torch.Tensor, max_samples: int = 512
     ) -> None:
-        """Estimate the empirical Fisher on (x, y) and snapshot the current weights."""
+        """Estimate the diagonal empirical Fisher on (x, y) and snapshot the current weights.
+
+        Fisher is the mean of *per-sample* squared log-likelihood gradients — computed one sample
+        at a time, since a batch's mean gradient would under-estimate Σ_k g_k². Capped at
+        ``max_samples`` so a long session doesn't make consolidation expensive.
+        """
         model.eval()
         fisher = {n: torch.zeros_like(p) for n, p in model.named_parameters() if p.requires_grad}
-        n_total = x.shape[0]
-        for start in range(0, n_total, batch_size):
-            xb, yb = x[start : start + batch_size], y[start : start + batch_size]
+        n_used = min(x.shape[0], max_samples)
+        for i in range(n_used):
             model.zero_grad()
-            logits, _ = model(xb)
-            loss = nn.functional.nll_loss(torch.log_softmax(logits, dim=-1), yb)
+            logits, _ = model(x[i : i + 1])
+            loss = nn.functional.nll_loss(torch.log_softmax(logits, dim=-1), y[i : i + 1])
             loss.backward()
             for n, p in model.named_parameters():
                 if p.grad is not None:
-                    fisher[n] += p.grad.detach() ** 2 * xb.shape[0]
-        fisher = {n: f / max(1, n_total) for n, f in fisher.items()}
+                    fisher[n] += p.grad.detach() ** 2
+        fisher = {n: f / max(1, n_used) for n, f in fisher.items()}
         snapshot = {n: p.detach().clone() for n, p in model.named_parameters() if p.requires_grad}
         self.tasks.append((snapshot, fisher))
         model.zero_grad()

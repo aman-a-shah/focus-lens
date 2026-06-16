@@ -11,10 +11,9 @@ import urllib.request
 from pathlib import Path
 
 from .logging import get_logger
+from .paths import CHECKPOINTS_DIR as _CHECKPOINTS_DIR
 
 log = get_logger(__name__)
-
-_CHECKPOINTS_DIR = Path(__file__).resolve().parent.parent / "checkpoints"
 
 FACE_LANDMARKER_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"

@@ -19,9 +19,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Gaze model training (Phase 4) — heavy, not needed for live/simulate.
+# Model training (Phases 4, 7–9) — heavy, not needed for live/simulate.
 train = [
     "torch>=2.2",
+]
+# Optional plotting for ablation/summary figures (Phases 8, 10).
+plot = [
+    "matplotlib>=3.8",
+]
+# Public Gradio demo (Phase 11).
+demo = [
+    "gradio>=4.0",
 ]
 dev = [
     "pytest>=8.0",

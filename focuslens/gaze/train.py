@@ -20,13 +20,12 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from ..logging import get_logger
+from ..paths import CHECKPOINTS_DIR as _CHECKPOINTS
 from .dataset import SyntheticGazeDataset
 from .metrics import angles_to_unit_vector, mean_angular_error_deg
 from .model import build_model, model_input_key
 
 log = get_logger(__name__)
-
-_CHECKPOINTS = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 
 
 @dataclass

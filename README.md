@@ -4,11 +4,34 @@ On-device webcam **attention-theft detector**. Watches you through your laptop c
 learns your personal distraction signature, and intervenes in real time when you lose focus.
 Runs fully offline — no cloud, no data leaving your machine.
 
-See [`plan.md`](plan.md) for the full PRD and [`roadmap.md`](roadmap.md) for the phased build plan.
+See [`plan.md`](plan.md) for the full PRD, [`roadmap.md`](roadmap.md) for the phased build plan,
+and [`docs/writeup.md`](docs/writeup.md) for the technical write-up with results.
+
+## Architecture
+
+A **walking skeleton** built first (capture → state → notify), then each box replaced with ML:
+
+```mermaid
+flowchart LR
+    cam[Webcam] --> fm[Face Mesh<br/>478 landmarks + iris]
+    fm --> feat[Per-frame features<br/>EAR · blink · pose · gaze]
+    feat --> gaze[Gaze head<br/>trained + calibrated]
+    gaze --> win[200ms windows<br/>+ 30-window sequences]
+    win --> clf[Classifier<br/>rule → PersonalFocusNet]
+    clf --> haz[Cox hazard timer]
+    haz --> notify[Notify / nudge]
+    clf --> db[(SQLite session log)]
+    db --> label[Self-supervised<br/>labels] --> clf
+    db --> cont[Continual learning<br/>EWC + replay] --> clf
+    db --> summ[Session summary<br/>heatmap]
+```
+
+Phase → component map: perception (1–2) · skeleton (3) · gaze + calibration (4–5) · labels +
+PersonalFocusNet (6–7) · continual learning (8) · intervention timing (9) · app + demo (10–11).
 
 ## Status
 
-Early scaffold. Current phases:
+All roadmap phases complete (0–11):
 
 - **Phase 0 — Scaffold** ✅ repo, deps, config, logging, tests
 - **Phase 1 — Webcam + Face Mesh spike** ✅ live landmark/iris overlay with FPS
@@ -37,6 +60,9 @@ Early scaffold. Current phases:
 - **Phase 10 — App shell & UX** ✅ Tkinter control panel (`app`) wrapping the runtime: pause/resume,
   a sensitivity slider, calibration launch, and a post-session distraction **heatmap** summary
   (`summary`, with optional PNG). Headless core (settings/controller/summary) is fully tested
+- **Phase 11 — Demo & portfolio** ✅ Gradio demo for Hugging Face Spaces (`demo`, anonymized
+  in-memory inference), architecture diagram, technical write-up ([`docs/writeup.md`](docs/writeup.md)),
+  and [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 ## Setup
 
@@ -73,6 +99,7 @@ focuslens continual-update --db session.sqlite                      # post-sessi
 focuslens train-timing                 # fit the Cox intervention-timing model (C-index + lead)
 focuslens app                          # Tkinter control panel: pause, sensitivity, calibrate, summary
 focuslens summary --db session.sqlite  # post-session distraction heatmap (--png for a figure)
+focuslens demo                         # launch the Gradio public demo (pip install -e '.[demo]')
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →

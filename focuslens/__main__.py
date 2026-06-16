@@ -123,6 +123,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--png", default=None, help="Also write a heatmap PNG here (needs matplotlib)"
     )
 
+    dm = sub.add_parser("demo", help="Launch the Gradio public demo (Phase 11; needs gradio)")
+    dm.add_argument("--share", action="store_true", help="Create a public Gradio share link")
+
     return parser
 
 
@@ -325,6 +328,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.png:
                 out = summary.save_png(args.png)
                 print(f"png -> {out}" if out else "png skipped (matplotlib not installed)")
+        return 0
+
+    if args.command == "demo":
+        try:
+            from .demo.app import launch
+        except ImportError:
+            print("error: install the demo extra: pip install -e '.[demo]'", file=sys.stderr)
+            return 1
+        launch(config, share=args.share)
         return 0
 
     # No subcommand: print a short usage hint.
