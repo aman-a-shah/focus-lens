@@ -60,3 +60,36 @@ def test_summary_is_none_before_a_session():
     ctrl = _controller()
     assert ctrl.summary() is None
     ctrl.close()
+
+
+def test_live_snapshot_tracks_signals_and_fps():
+    ctrl = _controller()
+    ctrl.start_session(0.0)
+    for f in generate_frames([("focused", 2.0)], fps=30, seed=0):
+        ctrl.process_frame(f)
+    snap = ctrl.snapshot()
+    assert snap.face_present is True
+    assert snap.fps > 0.0
+    assert 0.0 <= snap.attention <= 1.0
+    assert 0.0 <= snap.gaze_drift <= 1.0
+    ctrl.close()
+
+
+def test_state_percentages_and_timeline_populate():
+    ctrl = _controller()
+    ctrl.start_session(0.0)
+    for f in generate_frames(DEFAULT_SCENARIO, fps=30, seed=0):
+        ctrl.process_frame(f)
+    pct = ctrl.state_percentages()
+    assert abs(sum(pct.values()) - 1.0) < 1e-6  # a full distribution over the four states
+    assert len(ctrl.recent_states()) > 0
+    ctrl.close()
+
+
+def test_snapshot_is_safe_before_any_frame():
+    ctrl = _controller()
+    ctrl.start_session(0.0)
+    snap = ctrl.snapshot()  # no frames yet
+    assert snap.state is None
+    assert snap.face_present is False
+    ctrl.close()

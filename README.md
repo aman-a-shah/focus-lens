@@ -97,7 +97,7 @@ focuslens live --focus-model checkpoints/focusnet.pt                # learned cl
 focuslens continual-eval --sessions 10 # EWC+replay vs naive vs frozen forgetting ablation
 focuslens continual-update --db session.sqlite                      # post-session fine-tune (EWC+replay)
 focuslens train-timing                 # fit the Cox intervention-timing model (C-index + lead)
-focuslens app                          # Tkinter control panel: pause, sensitivity, calibrate, summary
+focuslens app                          # live dashboard: camera preview, status, signal meters, timeline
 focuslens summary --db session.sqlite  # post-session distraction heatmap (--png for a figure)
 focuslens demo                         # launch the Gradio public demo (pip install -e '.[demo]')
 ```
@@ -129,12 +129,16 @@ user-tunable hazard threshold so the nudge fires ~20s before you'd notice you dr
 runs through the notification layer, and each intervention is logged with a "was this helpful?"
 slot (`record_feedback`) for later tuning. Self-contained — no `lifelines` dependency.
 
-App shell (Phase 10): `focuslens app` opens a Tkinter control panel that wraps the runtime —
+App shell (Phase 10): `focuslens app` opens a dark **dashboard** that wraps the runtime — a live
+camera preview with the face/pose overlay, a color-coded status card (state + activity + the
+reason it fired, e.g. *"Distracted — on your phone"*), live signal meters (attention, gaze drift,
+looking-down, phone-in-hand), a rolling state timeline, and a session breakdown — plus
 pause/resume, a single **sensitivity** slider (0–1, where 0.5 is the tuned default and higher
 trips every detector sooner), a calibration launcher, and a post-session distraction **heatmap**.
 The same heatmap prints headlessly via `focuslens summary` (an ASCII strip over the session
 timeline, `--png` for a figure when matplotlib is installed). The GUI is a thin wrapper over a
-tested `AppController`, so the whole control surface works without a display.
+tested `AppController` (the live snapshot + stats it renders are unit-tested), so the whole
+control surface works without a display.
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy

@@ -102,6 +102,7 @@ def run_live(
     snapped = False
     last_print = -1.0
     current_state: str | None = None
+    current_reason: str = ""
     n = 0
 
     with ExitStack() as stack:
@@ -162,6 +163,7 @@ def run_live(
             out = pipeline.process_frame(features, activity)
             if out is not None:
                 current_state = str(out.state)
+                current_reason = out.reason
                 if out.transitioned:
                     detail = f" ({out.reason})" if out.reason else ""
                     log.info(
@@ -179,7 +181,16 @@ def run_live(
                 last_print = frame.timestamp
 
             if show_window or (snapshot_path and not snapped):
-                annotated = draw_overlay(frame.image, result, fps, config.viz, state=current_state)
+                annotated = draw_overlay(
+                    frame.image,
+                    result,
+                    fps,
+                    config.viz,
+                    state=current_state,
+                    pose=last_pose,
+                    reason=current_reason,
+                    pose_min_visibility=config.pose.min_visibility,
+                )
                 if snapshot_path and not snapped and result is not None:
                     cv2.imwrite(snapshot_path, annotated)
                     snapped = True

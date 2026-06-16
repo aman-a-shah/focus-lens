@@ -107,9 +107,48 @@ def test_phone_posture_is_distracted_even_with_open_eyes():
     assert clf.last_reason == "on your phone"
 
 
+def test_phone_in_lap_is_distracted_without_hand_at_face():
+    # Head hunched down + eyes down, hands too low to register near the face = lap phone.
+    clf = RuleClassifier()
+    state = _hold(
+        clf,
+        seconds=2.5,
+        body_fraction=1.0,
+        hands_near_face=0.0,
+        head_drop=-0.2,  # dropped from the ~-0.9 upright baseline
+        looking_down=0.45,
+    )
+    assert state == DistractionState.DISTRACTED
+    assert clf.last_reason == "on your phone"
+
+
+def test_chin_on_hand_at_screen_is_not_a_phone():
+    # Hand at the face but eyes level and head upright = resting your chin, still working.
+    clf = RuleClassifier()
+    state = _hold(
+        clf,
+        seconds=3.0,
+        body_fraction=1.0,
+        hands_near_face=0.8,
+        head_drop=-0.9,
+        looking_down=0.0,
+    )
+    assert state == DistractionState.FOCUSED
+
+
 def test_work_app_on_screen_stays_focused():
     clf = RuleClassifier()
     assert _hold(clf, ActivityCategory.WORK) == DistractionState.FOCUSED
+
+
+def test_wandering_eyes_escalate_to_distracted():
+    # Eyes parked off-centre (on-screen but wandering): brief = drifting, sustained = distracted.
+    clf = RuleClassifier()
+    assert clf.classify(_w(t_start=0.0, t_end=0.2, gaze_x=0.6)) == DistractionState.DRIFTING
+    state = None
+    for k in range(1, 20):  # hold the wander past distract_hold_s
+        state = clf.classify(_w(t_start=k * 0.2, t_end=(k + 1) * 0.2, gaze_x=0.6))
+    assert state == DistractionState.DISTRACTED
 
 
 def test_transient_distracting_activity_is_only_drifting():

@@ -32,9 +32,9 @@ class RuleThresholds:
     # ---- gaze / off-screen (where you're looking) ----
     # |gaze| beyond this (in proxy units) reads as off-screen.
     gaze_offscreen: float = 0.85
-    # How long off-screen / non-work must hold to count as DISTRACTED.
-    distract_hold_s: float = 3.0
-    # |gaze| in [drift_gaze, gaze_offscreen) = hovering near the screen edge -> drifting.
+    # How long off-screen / wandering must hold to count as DISTRACTED.
+    distract_hold_s: float = 2.5
+    # |gaze| in [drift_gaze, gaze_offscreen) = hovering near the screen edge -> wandering.
     drift_gaze: float = 0.45
     # Gaze saccade velocity (proxy units / s) signalling wandering.
     drift_velocity: float = 1.5
@@ -43,17 +43,17 @@ class RuleThresholds:
 
     # ---- activity (what you're doing) ----
     # How long a distracting foreground app must hold to count as DISTRACTED.
-    activity_hold_s: float = 3.0
+    activity_hold_s: float = 2.5
 
     # ---- body language (phone in hand / hunched over) ----
     # Wrist-at-face score above this is "a hand is up by your head".
     phone_hands: float = 0.55
-    # Downward-gaze component above this corroborates looking-down-at-a-phone.
+    # Downward-gaze component above this = eyes pointed down (at a phone/lap).
     phone_looking_down: float = 0.3
     # head_drop above this (baseline ~ -0.9 upright) = head hunched down toward the phone/lap.
-    phone_head_drop: float = -0.4
+    phone_head_drop: float = -0.45
     # How long the phone posture must hold to count as DISTRACTED.
-    phone_hold_s: float = 2.0
+    phone_hold_s: float = 1.5
 
     # ---- fatigue (the demoted eye-openness signal) ----
     fatigue_blink_rate: float = 26.0
@@ -105,22 +105,32 @@ class RuleClassifier:
         has_body = window.body_fraction >= 0.5
 
         # --- evidence ---
-        offscreen = (
+        gaze_edge = max(abs(window.gaze_x), abs(window.gaze_y)) >= t.drift_gaze
+        hard_offscreen = (
             window.face_fraction < 0.5
             or abs(window.gaze_x) >= t.gaze_offscreen
             or abs(window.gaze_y) >= t.gaze_offscreen
         )
+        # "Looking away" = no face, eyes well off-screen, or eyes parked at the edge. Sustained,
+        # this is distraction; brief, it's the early-warning drift below.
+        looking_away = hard_offscreen or (has_face and gaze_edge)
         distracting_activity = is_distracting_activity(activity)
-        phone_posture = (
-            has_body
-            and window.hands_near_face >= t.phone_hands
-            and (
-                window.looking_down >= t.phone_looking_down
-                or window.head_drop >= t.phone_head_drop
-            )
+        # Two phone signatures, both needing the body to be tracked:
+        #   - hand_phone: a hand raised to the head *and* the eyes/head tipped down — holding a
+        #     phone up to read it (a hand at the face while still looking at the screen, e.g.
+        #     resting your chin, deliberately does NOT count).
+        #   - lap_phone: head hunched down with the eyes pointed down — a phone in the lap, where
+        #     the hand sits too low to register as "near the face".
+        gaze_or_head_down = (
+            window.looking_down >= t.phone_looking_down or window.head_drop >= t.phone_head_drop
         )
+        hand_phone = window.hands_near_face >= t.phone_hands and gaze_or_head_down
+        lap_phone = (
+            window.head_drop >= t.phone_head_drop and window.looking_down >= t.phone_looking_down
+        )
+        phone_posture = has_body and (hand_phone or lap_phone)
 
-        held_off = self._off.update(offscreen, window.t_start, window.t_end)
+        held_away = self._off.update(looking_away, window.t_start, window.t_end)
         held_act = self._activity.update(distracting_activity, window.t_start, window.t_end)
         held_phone = self._phone.update(phone_posture, window.t_start, window.t_end)
 
@@ -129,9 +139,9 @@ class RuleClassifier:
             return self._distracted(activity, self._activity_reason(activity))
         if held_phone >= t.phone_hold_s:
             return self._distracted(activity, "on your phone")
-        if held_off >= t.distract_hold_s:
+        if held_away >= t.distract_hold_s:
             away = not (has_face or has_body)
-            reason = "away from your desk" if away else "looking away from the screen"
+            reason = "away from your desk" if away else "your eyes keep wandering off-screen"
             return self._distracted(activity, reason)
 
         # --- fatigue: the only remaining use of eye-openness/blink ---
@@ -140,7 +150,6 @@ class RuleClassifier:
             return self._decision(DistractionState.FATIGUED, activity, "you look fatigued")
 
         # --- transient versions surface as an early-warning DRIFTING ---
-        gaze_edge = max(abs(window.gaze_x), abs(window.gaze_y)) >= t.drift_gaze
         if distracting_activity:
             return self._decision(
                 DistractionState.DRIFTING, activity, self._activity_reason(activity)
@@ -148,8 +157,7 @@ class RuleClassifier:
         if phone_posture:
             return self._decision(DistractionState.DRIFTING, activity, "reaching for your phone")
         if (
-            offscreen
-            or gaze_edge
+            looking_away
             or window.gaze_velocity >= t.drift_velocity
             or abs(window.head_pose_change_rate) >= t.drift_head_rate
         ):
