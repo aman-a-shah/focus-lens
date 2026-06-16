@@ -111,6 +111,18 @@ def _build_parser() -> argparse.ArgumentParser:
     tt.add_argument("--lead", type=float, default=20.0, help="Target lead time (s) before drift")
     tt.add_argument("--seed", type=int, default=0)
 
+    app = sub.add_parser("app", help="Launch the Tkinter control panel (Phase 10)")
+    app.add_argument("--camera", type=int, default=None, help="Camera index override")
+    app.add_argument("--db", default="focuslens.sqlite", help="SQLite session log path")
+    app.add_argument("--no-notify", action="store_true", help="Disable desktop notifications")
+
+    summ = sub.add_parser("summary", help="Print a logged session's distraction summary (Phase 10)")
+    summ.add_argument("--db", default="focuslens.sqlite", help="SQLite session log path")
+    summ.add_argument("--session", type=int, default=None, help="Session id (default: latest)")
+    summ.add_argument(
+        "--png", default=None, help="Also write a heatmap PNG here (needs matplotlib)"
+    )
+
     return parser
 
 
@@ -279,6 +291,40 @@ def main(argv: list[str] | None = None) -> int:
 
         result = train_timing(n=args.n, epochs=args.epochs, target_lead_s=args.lead, seed=args.seed)
         print(result.summary())
+        return 0
+
+    if args.command == "app":
+        if args.camera is not None:
+            config.capture.camera_index = args.camera
+        from .app.shell import run_app
+
+        try:
+            run_app(
+                config,
+                source=config.capture.camera_index,
+                db_path=args.db,
+                notify=not args.no_notify,
+            )
+        except Exception as exc:  # noqa: BLE001 - GUI/camera/display errors -> clean message
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "summary":
+        from .app.summary import build_summary
+        from .session import SessionStore
+
+        with SessionStore(args.db) as store:
+            ids = store.session_ids()
+            if not ids:
+                print("error: no sessions logged yet", file=sys.stderr)
+                return 1
+            session_id = args.session if args.session is not None else ids[-1]
+            summary = build_summary(store, session_id)
+            print(summary.report())
+            if args.png:
+                out = summary.save_png(args.png)
+                print(f"png -> {out}" if out else "png skipped (matplotlib not installed)")
         return 0
 
     # No subcommand: print a short usage hint.

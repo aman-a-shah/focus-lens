@@ -34,6 +34,9 @@ Early scaffold. Current phases:
 - **Phase 9 — Intervention timing** ✅ Cox proportional-hazards model over trend features decides
   *when* to nudge (`train-timing`), fired through the notification layer with a user-tunable hazard
   threshold + helpfulness feedback — **C-index 0.83, fires ~22s before drift** (10–30s target)
+- **Phase 10 — App shell & UX** ✅ Tkinter control panel (`app`) wrapping the runtime: pause/resume,
+  a sensitivity slider, calibration launch, and a post-session distraction **heatmap** summary
+  (`summary`, with optional PNG). Headless core (settings/controller/summary) is fully tested
 
 ## Setup
 
@@ -68,6 +71,8 @@ focuslens live --focus-model checkpoints/focusnet.pt                # learned cl
 focuslens continual-eval --sessions 10 # EWC+replay vs naive vs frozen forgetting ablation
 focuslens continual-update --db session.sqlite                      # post-session fine-tune (EWC+replay)
 focuslens train-timing                 # fit the Cox intervention-timing model (C-index + lead)
+focuslens app                          # Tkinter control panel: pause, sensitivity, calibrate, summary
+focuslens summary --db session.sqlite  # post-session distraction heatmap (--png for a figure)
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
@@ -96,6 +101,13 @@ time-of-day, session length); `train-timing` fits it, reports the **C-index**, a
 user-tunable hazard threshold so the nudge fires ~20s before you'd notice you drifted. Firing
 runs through the notification layer, and each intervention is logged with a "was this helpful?"
 slot (`record_feedback`) for later tuning. Self-contained — no `lifelines` dependency.
+
+App shell (Phase 10): `focuslens app` opens a Tkinter control panel that wraps the runtime —
+pause/resume, a single **sensitivity** slider (0–1, where 0.5 is the tuned default and higher
+trips every detector sooner), a calibration launcher, and a post-session distraction **heatmap**.
+The same heatmap prints headlessly via `focuslens summary` (an ASCII strip over the session
+timeline, `--png` for a figure when matplotlib is installed). The GUI is a thin wrapper over a
+tested `AppController`, so the whole control surface works without a display.
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy
