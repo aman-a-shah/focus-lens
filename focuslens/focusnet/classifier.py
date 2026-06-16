@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ..context.activity import ActivityCategory
 from ..states import DistractionState, state_from_index
 from ..window import NUM_FEATURES, SequenceBuffer, WindowFeatures
 from .dataset import FeatureNormalizer
@@ -41,6 +42,7 @@ class LearnedClassifier:
         self.buffer = SequenceBuffer(length=seq_len)
         self._seen = 0
         self.last_uncertainty = 1.0
+        self.last_reason = ""
 
     @classmethod
     def from_checkpoint(cls, checkpoint: str | Path, **overrides: object) -> LearnedClassifier:
@@ -72,7 +74,11 @@ class LearnedClassifier:
             return DistractionState.FOCUSED  # too unsure to escalate
         return raw
 
-    def classify(self, window: WindowFeatures) -> DistractionState:
+    def classify(
+        self, window: WindowFeatures, activity: ActivityCategory | None = None
+    ) -> DistractionState:
+        # ``activity`` is accepted for interface parity with the rule classifier; the learned
+        # model reads it from the window-sequence features, not as a separate argument.
         self.buffer.append(window)
         self._seen += 1
         idx, _probs, unc = predict(self.model, self._sequence_tensor())

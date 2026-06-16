@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from ..classifier import RuleClassifier
 from ..config import Config
+from ..context.activity import ActivityCategory
 from ..features import FrameFeatures
 from ..notify import Notifier
 from ..pipeline import AttentionPipeline, PipelineOutput
@@ -37,6 +38,8 @@ class AppController:
         self.session_id: int | None = None
         self.pipeline: AttentionPipeline | None = None
         self.current_state: DistractionState | None = None
+        self.current_activity: ActivityCategory = ActivityCategory.UNKNOWN
+        self.current_reason: str = ""
         self.frames_processed = 0
 
     # ---- session lifecycle -------------------------------------------------------------------
@@ -52,14 +55,18 @@ class AppController:
         self.frames_processed = 0
         return self.session_id
 
-    def process_frame(self, features: FrameFeatures) -> PipelineOutput | None:
+    def process_frame(
+        self, features: FrameFeatures, activity: ActivityCategory | None = None
+    ) -> PipelineOutput | None:
         """Drive one frame through the pipeline; a no-op while paused."""
         if self.settings.paused or self.pipeline is None:
             return None
         self.frames_processed += 1
-        out = self.pipeline.process_frame(features)
+        out = self.pipeline.process_frame(features, activity)
         if out is not None:
             self.current_state = out.state
+            self.current_activity = out.activity
+            self.current_reason = out.reason
         return out
 
     def end_session(self, t: float = 0.0) -> None:

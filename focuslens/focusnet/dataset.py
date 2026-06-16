@@ -23,14 +23,26 @@ from ..states import NUM_STATES, DistractionState, state_index
 from ..window import NUM_FEATURES
 
 # Per-class mean feature vector (canonical order: gaze_x, gaze_y, gaze_vel, gaze_accel,
-# blink_rate, blink_dur, head_pose_change_rate, ear) — the signatures the simulator also uses.
+# blink_rate, blink_dur, head_pose_change_rate, ear, torso_lean, head_drop, proximity,
+# hands_near_face, looking_down) — the signatures the simulator also uses. The last five are the
+# body-language + looking-down signals: DISTRACTED is the one that lights up hands_near_face /
+# looking_down / head_drop, which is exactly how we separate "on a phone" from "eyes open".
+# fmt: off
 _CLASS_MEANS: dict[DistractionState, list[float]] = {
-    DistractionState.FOCUSED: [0.0, 0.0, 0.1, 0.0, 12.0, 0.15, 3.0, 0.27],
-    DistractionState.DRIFTING: [0.6, 0.0, 1.8, 0.2, 14.0, 0.15, 40.0, 0.26],
-    DistractionState.DISTRACTED: [1.1, 0.0, 0.3, 0.0, 12.0, 0.15, 8.0, 0.26],
-    DistractionState.FATIGUED: [0.0, 0.0, 0.1, 0.0, 30.0, 0.30, 3.0, 0.16],
+    # gaze_x gaze_y g_vel g_acc blink b_dur head_chg  ear  lean  drop  prox hands  down
+    DistractionState.FOCUSED:
+        [0.0, 0.0, 0.1, 0.0, 12.0, 0.15, 3.0, 0.27, 0.0, -0.85, 0.40, 0.05, 0.05],
+    DistractionState.DRIFTING:
+        [0.6, 0.0, 1.8, 0.2, 14.0, 0.15, 40.0, 0.26, 0.05, -0.80, 0.36, 0.10, 0.20],
+    DistractionState.DISTRACTED:
+        [1.1, 0.0, 0.3, 0.0, 12.0, 0.15, 8.0, 0.26, 0.10, -0.30, 0.34, 0.70, 0.50],
+    DistractionState.FATIGUED:
+        [0.0, 0.0, 0.1, 0.0, 30.0, 0.30, 3.0, 0.16, 0.05, -0.50, 0.33, 0.10, 0.15],
 }
-_CLASS_STD = np.array([0.08, 0.08, 0.3, 0.1, 1.5, 0.02, 6.0, 0.02], dtype=np.float32)
+_CLASS_STD = np.array(
+    [0.08, 0.08, 0.3, 0.1, 1.5, 0.02, 6.0, 0.02, 0.05, 0.15, 0.03, 0.15, 0.10], dtype=np.float32
+)
+# fmt: on
 
 
 @dataclass

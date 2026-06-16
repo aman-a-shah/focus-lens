@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .context.activity import is_distracting_activity
 from .session import LoggedWindow, SessionStore, TimeInterval
 from .states import DistractionState
 
@@ -74,6 +75,11 @@ def propagate_labels(
         weak = next((k for a, b, k in weak_spans if _overlaps(ws, we, a, b)), None)
         if weak is not None:
             out.append(WindowLabel(w.window_id, DistractionState.DISTRACTED, f"weak_{weak}"))
+            continue
+        # The foreground app is a strong weak-signal: a non-work app in front of you means
+        # distraction more reliably than the webcam-only heuristic can.
+        if is_distracting_activity(w.activity):
+            out.append(WindowLabel(w.window_id, DistractionState.DISTRACTED, "weak_activity"))
             continue
         out.append(WindowLabel(w.window_id, w.state, "heuristic"))
     return out

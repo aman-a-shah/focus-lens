@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .classifier import RuleClassifier
+from .context.activity import ActivityCategory
 from .features import FrameFeatures
 from .notify import Notifier
 from .session import SessionStore
@@ -19,9 +20,16 @@ from .window import SequenceBuffer, WindowAggregator, WindowFeatures
 
 
 class Classifier(Protocol):
-    """Anything that maps a window to a state — the rule classifier or PersonalFocusNet."""
+    """Anything that maps a window to a state — the rule classifier or PersonalFocusNet.
 
-    def classify(self, window: WindowFeatures) -> DistractionState: ...
+    ``activity`` is the foreground-app activity for this window; classifiers that don't use it
+    (e.g. PersonalFocusNet) simply ignore it. A classifier may expose ``last_reason`` to supply
+    a human-readable explanation for the committed state.
+    """
+
+    def classify(
+        self, window: WindowFeatures, activity: ActivityCategory | None = None
+    ) -> DistractionState: ...
 
 
 @dataclass(frozen=True)
@@ -33,6 +41,8 @@ class PipelineOutput:
     state: DistractionState  # debounced/committed state
     transitioned: bool  # True if the committed state changed this window
     notified: bool
+    activity: ActivityCategory  # foreground-app activity for this window
+    reason: str  # human-readable explanation for the state
 
 
 class _StateDebouncer:
@@ -82,9 +92,19 @@ class AttentionPipeline:
         self.debouncer = _StateDebouncer(hold=debounce_windows)
         # Optional hazard-timer controller (Phase 9); consulted per window for pre-emptive nudges.
         self.intervention = intervention
+        # Most recent foreground-app activity; carried onto the window when it closes.
+        self._activity = ActivityCategory.UNKNOWN
 
-    def process_frame(self, features: FrameFeatures) -> PipelineOutput | None:
-        """Feed one frame; returns a result on frames that close a window, else None."""
+    def process_frame(
+        self, features: FrameFeatures, activity: ActivityCategory | None = None
+    ) -> PipelineOutput | None:
+        """Feed one frame; returns a result on frames that close a window, else None.
+
+        ``activity`` is the current foreground-app activity (from app context); the latest
+        value seen is used when the window closes.
+        """
+        if activity is not None:
+            self._activity = activity
         window = self.aggregator.add(features)
         if window is None:
             return None
@@ -99,18 +119,20 @@ class AttentionPipeline:
 
     def _on_window(self, window: WindowFeatures) -> PipelineOutput:
         self.sequence.append(window)
-        raw_state = self.classifier.classify(window)
+        activity = self._activity
+        raw_state = self.classifier.classify(window, activity)
+        reason = getattr(self.classifier, "last_reason", "")
         state, transitioned = self.debouncer.update(raw_state)
 
         notified = False
         if transitioned and self.notifier is not None:
-            notified = self.notifier.on_state(state, window.t_end)
+            notified = self.notifier.on_state(state, window.t_end, reason=reason)
 
         if self.intervention is not None:
             self.intervention.on_window(window, state)
 
         if self.store is not None and self.session_id is not None:
-            self.store.log_window(self.session_id, window, state)
+            self.store.log_window(self.session_id, window, state, activity)
 
         return PipelineOutput(
             window=window,
@@ -118,4 +140,6 @@ class AttentionPipeline:
             state=state,
             transitioned=transitioned,
             notified=notified,
+            activity=activity,
+            reason=reason,
         )

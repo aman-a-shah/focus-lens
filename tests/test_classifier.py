@@ -1,4 +1,5 @@
 from focuslens.classifier import RuleClassifier
+from focuslens.context.activity import ActivityCategory
 from focuslens.states import DistractionState
 from focuslens.window import WindowFeatures
 
@@ -57,3 +58,74 @@ def test_returning_to_screen_resets_distraction_hold():
     # glance back resets the timer
     assert clf.classify(_w(t_start=2.0, t_end=2.2, gaze_x=0.0)) == DistractionState.FOCUSED
     assert clf.classify(_w(t_start=2.2, t_end=2.4, gaze_x=1.0)) == DistractionState.DRIFTING
+
+
+def _hold(clf, activity=None, seconds=4.0, **kw):
+    """Feed identical windows for ``seconds`` and return the final state."""
+    state = None
+    n = int(seconds / 0.2) + 1
+    for k in range(n):
+        state = clf.classify(_w(t_start=k * 0.2, t_end=(k + 1) * 0.2, **kw), activity)
+    return state
+
+
+# --- the core regression: eyes wide open but clearly not working ---------------------------
+
+
+def test_eyes_open_but_on_social_media_is_distracted():
+    # Perfectly focused-looking face (gaze centred, eyes open) — but a social app is in front.
+    # The old EAR-driven classifier called this FOCUSED; the fused one must not.
+    clf = RuleClassifier()
+    assert _hold(clf, ActivityCategory.SOCIAL) == DistractionState.DISTRACTED
+
+
+def test_eyes_open_but_gaming_is_distracted():
+    clf = RuleClassifier()
+    decision = None
+    n = 25
+    for k in range(n):
+        decision = clf.decide(
+            _w(t_start=k * 0.2, t_end=(k + 1) * 0.2), ActivityCategory.GAMING
+        )
+    assert decision.state == DistractionState.DISTRACTED
+    assert decision.activity == ActivityCategory.GAMING
+    assert "gaming" in decision.reason
+
+
+def test_phone_posture_is_distracted_even_with_open_eyes():
+    # Hand up at the face + looking down = phone-in-hand, regardless of eye-openness or app.
+    clf = RuleClassifier()
+    state = _hold(
+        clf,
+        activity=ActivityCategory.UNKNOWN,  # webcam-only: no app context at all
+        seconds=3.0,
+        body_fraction=1.0,
+        hands_near_face=0.8,
+        looking_down=0.5,
+    )
+    assert state == DistractionState.DISTRACTED
+    assert clf.last_reason == "on your phone"
+
+
+def test_work_app_on_screen_stays_focused():
+    clf = RuleClassifier()
+    assert _hold(clf, ActivityCategory.WORK) == DistractionState.FOCUSED
+
+
+def test_transient_distracting_activity_is_only_drifting():
+    # A single glance at a distracting app shouldn't immediately escalate to DISTRACTED.
+    clf = RuleClassifier()
+    assert clf.classify(_w(), ActivityCategory.SOCIAL) == DistractionState.DRIFTING
+
+
+def test_unknown_activity_falls_back_to_gaze_focused():
+    # With no app context and an attentive face/body, we stay FOCUSED (graceful degradation).
+    clf = RuleClassifier()
+    assert clf.classify(_w(), ActivityCategory.UNKNOWN) == DistractionState.FOCUSED
+
+
+def test_decide_reports_activity_and_reason():
+    clf = RuleClassifier()
+    decision = clf.decide(_w(), ActivityCategory.WORK)
+    assert decision.state == DistractionState.FOCUSED
+    assert decision.activity == ActivityCategory.WORK

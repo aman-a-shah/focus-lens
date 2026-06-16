@@ -30,9 +30,19 @@ class SessionSummary:
     total_windows: int
     duration_s: float
     state_pct: dict[str, float]
+    activity_pct: dict[str, float]  # share of time per activity category
     heatmap: list[float]  # per-bucket distraction intensity in [0, 1]
     interventions: int
     helpful: int
+
+    def activity_line(self) -> str:
+        """Time-share per activity, busiest first, skipping unknown/idle noise."""
+        items = sorted(
+            ((k, v) for k, v in self.activity_pct.items() if k not in ("UNKNOWN", "IDLE")),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+        return "  ".join(f"{k.lower()} {v * 100:.0f}%" for k, v in items if v > 0)
 
     def ascii_heatmap(self) -> str:
         if not self.heatmap:
@@ -44,6 +54,11 @@ class SessionSummary:
         lines = [
             f"Session {self.session_id}: {self.duration_s:.0f}s, {self.total_windows} windows",
             "  " + pct,
+        ]
+        activity = self.activity_line()
+        if activity:
+            lines.append("  activity: " + activity)
+        lines += [
             f"  distraction: [{self.ascii_heatmap()}]",
             f"  interventions: {self.interventions} ({self.helpful} marked helpful)",
         ]
@@ -80,7 +95,7 @@ def build_summary(store: SessionStore, session_id: int, buckets: int = 40) -> Se
     n_helpful = sum(1 for *_rest, helpful in interventions if helpful == 1)
 
     if not windows:
-        return SessionSummary(session_id, 0, 0.0, {}, [], len(interventions), n_helpful)
+        return SessionSummary(session_id, 0, 0.0, {}, {}, [], len(interventions), n_helpful)
 
     t0 = windows[0].features.t_start
     t1 = windows[-1].features.t_end
@@ -91,6 +106,11 @@ def build_summary(store: SessionStore, session_id: int, buckets: int = 40) -> Se
     for w in windows:
         counts[str(w.state)] = counts.get(str(w.state), 0) + 1
     state_pct = {k: v / len(windows) for k, v in counts.items()}
+
+    # Activity percentages (from the foreground-app context logged per window).
+    activity_counts = store.activity_histogram(session_id)
+    total_activity = sum(activity_counts.values()) or 1
+    activity_pct = {k: v / total_activity for k, v in activity_counts.items()}
 
     # Distraction heatmap: average state weight per time bucket.
     sums = [0.0] * buckets
@@ -107,6 +127,7 @@ def build_summary(store: SessionStore, session_id: int, buckets: int = 40) -> Se
         total_windows=len(windows),
         duration_s=duration,
         state_pct=state_pct,
+        activity_pct=activity_pct,
         heatmap=heatmap,
         interventions=len(interventions),
         helpful=n_helpful,

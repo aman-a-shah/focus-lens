@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
+
+from .context.activity import ActivityCategory
 
 
 class DistractionState(StrEnum):
@@ -33,3 +36,16 @@ def state_index(state: DistractionState) -> int:
 def state_from_index(index: int) -> DistractionState:
     """Inverse of ``state_index``."""
     return STATES[index]
+
+
+@dataclass(frozen=True)
+class FusedDecision:
+    """The classifier's full per-window call: the attention state plus *why*.
+
+    ``state`` is the debounce-able attention label; ``activity`` is what you were doing (from
+    app context); ``reason`` is a short human-readable explanation for notifications/UI.
+    """
+
+    state: DistractionState
+    activity: ActivityCategory = ActivityCategory.UNKNOWN
+    reason: str = ""

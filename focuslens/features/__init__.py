@@ -1,6 +1,7 @@
 """Deterministic per-frame feature extractors (roadmap Phase 2)."""
 
 from .blink import BlinkDetector, BlinkState
+from .body import BodyFeatures, body_features
 from .ear import eye_aspect_ratio
 from .extractor import FeatureExtractor, FrameFeatures
 from .gaze import GazeProxy, naive_gaze
@@ -9,6 +10,8 @@ from .head_pose import HeadPose, HeadPoseEstimator
 __all__ = [
     "BlinkDetector",
     "BlinkState",
+    "BodyFeatures",
+    "body_features",
     "eye_aspect_ratio",
     "FeatureExtractor",
     "FrameFeatures",

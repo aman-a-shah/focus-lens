@@ -36,6 +36,14 @@ def _build_parser() -> argparse.ArgumentParser:
     live.add_argument(
         "--focus-model", default=None, help="PersonalFocusNet checkpoint (Phase 7); else rule-based"
     )
+    live.add_argument(
+        "--no-pose", action="store_true", help="Disable body-language tracking (face-only)"
+    )
+    live.add_argument(
+        "--no-app-context",
+        action="store_true",
+        help="Don't read the foreground app (webcam-only fusion)",
+    )
 
     bench = sub.add_parser("bench", help="Benchmark Face Mesh throughput offline (no camera)")
     bench.add_argument("--frames", type=int, default=120, help="Number of frames to time")
@@ -152,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
                 notify=not args.no_notify,
                 gaze_model=args.gaze_model,
                 focus_model=args.focus_model,
+                no_pose=args.no_pose,
+                no_app_context=args.no_app_context,
             )
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)

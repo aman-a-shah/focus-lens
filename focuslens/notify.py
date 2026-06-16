@@ -29,6 +29,20 @@ _MESSAGES = {
     DistractionState.FATIGUED: "You look fatigued — consider a short break.",
 }
 
+# Lead-in per state when a specific reason is available, e.g. "Distracted — on your phone."
+_REASON_LEAD = {
+    DistractionState.DRIFTING: "Heads-up",
+    DistractionState.DISTRACTED: "Distracted",
+    DistractionState.FATIGUED: "Heads-up",
+}
+
+
+def _message_for(state: DistractionState, reason: str) -> str:
+    """Reason-aware notification text, falling back to the generic per-state message."""
+    if reason:
+        return f"{_REASON_LEAD.get(state, 'Heads-up')} — {reason}. Refocus?"
+    return _MESSAGES[state]
+
 
 class Notifier:
     """Debounced desktop notifier."""
@@ -39,8 +53,12 @@ class Notifier:
         self._last_state: DistractionState | None = None
         self._last_fire_t: float | None = None
 
-    def on_state(self, state: DistractionState, timestamp: float) -> bool:
-        """Maybe notify on a state transition. Returns True if a notification fired."""
+    def on_state(self, state: DistractionState, timestamp: float, reason: str = "") -> bool:
+        """Maybe notify on a state transition. Returns True if a notification fired.
+
+        ``reason`` is the classifier's short explanation (e.g. "on your phone"); when present it
+        replaces the generic message so the nudge says *why* it fired.
+        """
         changed = state != self._last_state
         self._last_state = state
         if not changed or state not in _NOTIFYING_STATES:
@@ -48,7 +66,7 @@ class Notifier:
         if self._last_fire_t is not None and timestamp - self._last_fire_t < self.cooldown_s:
             return False
         self._last_fire_t = timestamp
-        self._dispatch("FocusLens", _MESSAGES[state])
+        self._dispatch("FocusLens", _message_for(state, reason))
         return True
 
     def on_intervention(self, timestamp: float) -> bool:

@@ -1,16 +1,18 @@
 """200ms feature-window aggregation (roadmap Phase 3).
 
 Per-frame ``FrameFeatures`` are noisy and arrive at the camera rate. The model (and the
-rule classifier) consume fixed 200ms windows of 8 features (plan.md §3.3):
+rule classifier) consume fixed 200ms windows of 13 features (plan.md §3.3, extended with
+body-language + looking-down signals):
 
-    0 gaze_x            4 blink_rate (per min)
-    1 gaze_y            5 blink_duration (s)
-    2 gaze_velocity     6 head_pose_change_rate (deg/s)
-    3 gaze_accel        7 ear
+    0 gaze_x            5 blink_duration (s)        10 proximity
+    1 gaze_y            6 head_pose_change_rate     11 hands_near_face
+    2 gaze_velocity     7 ear                       12 looking_down
+    3 gaze_accel        8 torso_lean
+    4 blink_rate        9 head_drop
 
 Velocity/acceleration/change-rate are temporal, so the aggregator is stateful: it remembers
 the previous window's gaze and head pose to form first/second derivatives. ``SequenceBuffer``
-stacks the most recent T windows into the [T, 8] tensor PersonalFocusNet will take later.
+stacks the most recent T windows into the [T, 13] tensor PersonalFocusNet will take later.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import numpy as np
 
 from .features import FrameFeatures
 
-NUM_FEATURES = 8
+NUM_FEATURES = 13
 
 
 @dataclass(frozen=True)
@@ -41,9 +43,17 @@ class WindowFeatures:
     blink_duration: float
     head_pose_change_rate: float
     ear: float
+    # Body-language + looking-down aggregates (roadmap overhaul). Default to 0.0 (= "no body /
+    # level gaze") so windows built from face-only data still construct.
+    torso_lean: float = 0.0
+    head_drop: float = 0.0
+    proximity: float = 0.0
+    hands_near_face: float = 0.0
+    looking_down: float = 0.0
+    body_fraction: float = 0.0  # fraction of frames in the window that had a tracked body
 
     def to_vector(self) -> np.ndarray:
-        """The 8-feature model input vector, in canonical order."""
+        """The 13-feature model input vector, in canonical order."""
         return np.array(
             [
                 self.gaze_x,
@@ -54,6 +64,11 @@ class WindowFeatures:
                 self.blink_duration,
                 self.head_pose_change_rate,
                 self.ear,
+                self.torso_lean,
+                self.head_drop,
+                self.proximity,
+                self.hands_near_face,
+                self.looking_down,
             ],
             dtype=np.float32,
         )
@@ -110,6 +125,9 @@ class WindowAggregator:
         t_start = self._win_start if self._win_start is not None else t_end
         present = [f for f in frames if f.face_present]
         face_fraction = len(present) / len(frames) if frames else 0.0
+        body_fraction = (
+            sum(1 for f in frames if f.body_present) / len(frames) if frames else 0.0
+        )
 
         gaze_x = _nanmean([f.gaze_x for f in frames])
         gaze_y = _nanmean([f.gaze_y for f in frames])
@@ -119,6 +137,12 @@ class WindowAggregator:
         yaw = _nanmean([f.yaw for f in frames])
         pitch = _nanmean([f.pitch for f in frames])
         roll = _nanmean([f.roll for f in frames])
+
+        torso_lean = _nanmean([f.torso_lean for f in frames])
+        head_drop = _nanmean([f.head_drop for f in frames])
+        proximity = _nanmean([f.proximity for f in frames])
+        hands_near_face = _nanmean([f.hands_near_face for f in frames])
+        looking_down = _nanmean([f.looking_down for f in frames])
 
         dt = (t_end - self._prev_end) if self._prev_end is not None else self.window_s
         dt = dt if dt > 1e-6 else self.window_s
@@ -149,6 +173,12 @@ class WindowAggregator:
             blink_duration=_z(blink_duration),
             head_pose_change_rate=pose_change,
             ear=_z(ear),
+            torso_lean=_z(torso_lean),
+            head_drop=_z(head_drop),
+            proximity=_z(proximity),
+            hands_near_face=_z(hands_near_face),
+            looking_down=_z(looking_down),
+            body_fraction=body_fraction,
         )
 
     def _gaze_velocity(self, gaze_x: float, gaze_y: float, dt: float) -> float:

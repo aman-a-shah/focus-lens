@@ -15,11 +15,13 @@ from dataclasses import dataclass
 
 from .capture import FrameBuffer, WebcamCapture
 from .config import Config
+from .context import ActiveAppReader, ActivityClassifier
 from .face_mesh import FaceMeshTracker
 from .features import FeatureExtractor, FrameFeatures
 from .logging import get_logger
 from .notify import Notifier
 from .pipeline import AttentionPipeline
+from .pose import PoseTracker
 from .session import SessionStore
 from .viz import draw_overlay
 
@@ -57,6 +59,8 @@ def run_live(
     notify: bool = True,
     gaze_model: str | None = None,
     focus_model: str | None = None,
+    no_pose: bool = False,
+    no_app_context: bool = False,
 ) -> None:
     """Capture, track, extract features, classify state, notify, and log the session.
 
@@ -68,6 +72,9 @@ def run_live(
     checkpoint (roadmap Phase 5); without it the naive proxy is used. ``focus_model`` points at a
     PersonalFocusNet checkpoint (Phase 7); without it the rule classifier is used. Press 'd' in
     the preview window to mark "I just noticed I drifted" (Phase 6 retrospective label).
+
+    ``no_pose`` disables body-language tracking (face-only); ``no_app_context`` disables reading
+    the foreground app (webcam-only fusion — see configs for the privacy toggle).
     """
     import cv2
 
@@ -81,7 +88,16 @@ def run_live(
 
         predictor = CalibratedGazePredictor.from_checkpoint(gaze_model)
         log.info("Using calibrated gaze head: %s", gaze_model)
-    extractor = FeatureExtractor(gaze_predictor=predictor)
+    extractor = FeatureExtractor(
+        gaze_predictor=predictor, body_min_visibility=config.pose.min_visibility
+    )
+    pose_enabled = config.pose.enabled and not no_pose
+    pose_every_n = max(1, config.pose.every_n_frames)
+    app_reader = ActiveAppReader(
+        poll_interval_s=config.activity.poll_interval_s,
+        enabled=config.activity.enabled and not no_app_context,
+    )
+    activity_classifier = ActivityClassifier(config.activity)
     window = "FocusLens — live (q/Esc to quit)"
     snapped = False
     last_print = -1.0
@@ -98,6 +114,9 @@ def run_live(
             )
         )
         tracker = stack.enter_context(FaceMeshTracker(config.face_mesh))
+        pose_tracker = (
+            stack.enter_context(PoseTracker(config.pose)) if pose_enabled else None
+        )
 
         store = None
         session_id = None
@@ -124,20 +143,34 @@ def run_live(
             csv_writer = csv.writer(fh)
             csv_writer.writerow(FrameFeatures.header())
 
+        last_pose = None
         for frame in cap.frames():
             buffer.append(frame)
-            result = tracker.process(frame.image, timestamp_ms=int(frame.timestamp * 1000))
+            ts_ms = int(frame.timestamp * 1000)
+            result = tracker.process(frame.image, timestamp_ms=ts_ms)
+            # Pose is the heaviest model; run it every Nth frame and reuse between (posture
+            # changes far slower than the camera rate).
+            if pose_tracker is not None and n % pose_every_n == 0:
+                last_pose = pose_tracker.process(frame.image, timestamp_ms=ts_ms)
             fps = fps_meter.tick(frame.timestamp)
             features = extractor.extract(
-                result, frame.image.shape, frame.timestamp, image=frame.image
+                result, frame.image.shape, frame.timestamp, image=frame.image, pose=last_pose
             )
+            activity = activity_classifier.classify(app_reader.read(frame.timestamp))
             n += 1
 
-            out = pipeline.process_frame(features)
+            out = pipeline.process_frame(features, activity)
             if out is not None:
                 current_state = str(out.state)
                 if out.transitioned:
-                    log.info("State -> %s @ %.1fs", current_state, out.window.t_end)
+                    detail = f" ({out.reason})" if out.reason else ""
+                    log.info(
+                        "State -> %s [%s]%s @ %.1fs",
+                        current_state,
+                        out.activity,
+                        detail,
+                        out.window.t_end,
+                    )
 
             if csv_writer is not None:
                 csv_writer.writerow(features.to_row())

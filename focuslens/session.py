@@ -12,6 +12,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from .context.activity import ActivityCategory
 from .states import DistractionState
 from .window import WindowFeatures
 
@@ -35,7 +36,14 @@ CREATE TABLE IF NOT EXISTS windows (
     blink_duration REAL NOT NULL,
     head_pose_change_rate REAL NOT NULL,
     ear           REAL NOT NULL,
-    state         TEXT NOT NULL
+    torso_lean      REAL NOT NULL DEFAULT 0.0,
+    head_drop       REAL NOT NULL DEFAULT 0.0,
+    proximity       REAL NOT NULL DEFAULT 0.0,
+    hands_near_face REAL NOT NULL DEFAULT 0.0,
+    looking_down    REAL NOT NULL DEFAULT 0.0,
+    body_fraction   REAL NOT NULL DEFAULT 0.0,
+    state         TEXT NOT NULL,
+    activity      TEXT NOT NULL DEFAULT 'UNKNOWN'
 );
 CREATE INDEX IF NOT EXISTS idx_windows_session ON windows(session_id);
 
@@ -74,12 +82,13 @@ CREATE TABLE IF NOT EXISTS interventions (
 
 @dataclass(frozen=True)
 class LoggedWindow:
-    """A window row read back from the store: its id, features and heuristic state."""
+    """A window row read back from the store: its id, features, heuristic state and activity."""
 
     window_id: int
     session_id: int
     features: WindowFeatures
     state: DistractionState
+    activity: ActivityCategory = ActivityCategory.UNKNOWN
 
 
 @dataclass(frozen=True)
@@ -92,25 +101,52 @@ class TimeInterval:
 class SessionStore:
     """Thin wrapper over a SQLite database file (use ':memory:' for tests)."""
 
+    # Columns added by the body/activity overhaul; back-filled onto pre-existing DBs.
+    _MIGRATIONS = (
+        ("torso_lean", "REAL NOT NULL DEFAULT 0.0"),
+        ("head_drop", "REAL NOT NULL DEFAULT 0.0"),
+        ("proximity", "REAL NOT NULL DEFAULT 0.0"),
+        ("hands_near_face", "REAL NOT NULL DEFAULT 0.0"),
+        ("looking_down", "REAL NOT NULL DEFAULT 0.0"),
+        ("body_fraction", "REAL NOT NULL DEFAULT 0.0"),
+        ("activity", "TEXT NOT NULL DEFAULT 'UNKNOWN'"),
+    )
+
     def __init__(self, db_path: str | Path = "focuslens.sqlite") -> None:
         self.db_path = str(db_path)
         self._conn = sqlite3.connect(self.db_path)
         self._conn.executescript(_SCHEMA)
+        self._migrate_windows()
         self._conn.commit()
+
+    def _migrate_windows(self) -> None:
+        """Add overhaul columns to a ``windows`` table created before they existed."""
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(windows)")}
+        for name, decl in self._MIGRATIONS:
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE windows ADD COLUMN {name} {decl}")
 
     def start_session(self, started_at: float) -> int:
         cur = self._conn.execute("INSERT INTO sessions(started_at) VALUES (?)", (started_at,))
         self._conn.commit()
         return int(cur.lastrowid)
 
-    def log_window(self, session_id: int, window: WindowFeatures, state: DistractionState) -> None:
+    def log_window(
+        self,
+        session_id: int,
+        window: WindowFeatures,
+        state: DistractionState,
+        activity: ActivityCategory | str = ActivityCategory.UNKNOWN,
+    ) -> None:
         self._conn.execute(
             """
             INSERT INTO windows(
                 session_id, t_start, t_end, face_fraction,
                 gaze_x, gaze_y, gaze_velocity, gaze_accel,
-                blink_rate, blink_duration, head_pose_change_rate, ear, state
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                blink_rate, blink_duration, head_pose_change_rate, ear,
+                torso_lean, head_drop, proximity, hands_near_face, looking_down, body_fraction,
+                state, activity
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 session_id,
@@ -125,7 +161,14 @@ class SessionStore:
                 window.blink_duration,
                 window.head_pose_change_rate,
                 window.ear,
+                window.torso_lean,
+                window.head_drop,
+                window.proximity,
+                window.hands_near_face,
+                window.looking_down,
+                window.body_fraction,
                 str(state),
+                str(activity),
             ),
         )
 
@@ -165,15 +208,21 @@ class SessionStore:
 
     _WINDOW_COLS = (
         "id, session_id, t_start, t_end, face_fraction, gaze_x, gaze_y, gaze_velocity, "
-        "gaze_accel, blink_rate, blink_duration, head_pose_change_rate, ear, state"
+        "gaze_accel, blink_rate, blink_duration, head_pose_change_rate, ear, "
+        "torso_lean, head_drop, proximity, hands_near_face, looking_down, body_fraction, "
+        "state, activity"
     )
 
     @staticmethod
     def _row_to_logged(row: tuple) -> LoggedWindow:
-        wid, sid, t0, t1, ff, gx, gy, gv, ga, br, bd, hpr, ear, state = row
+        (
+            wid, sid, t0, t1, ff, gx, gy, gv, ga, br, bd, hpr, ear,
+            tl, hd, prox, hnf, ld, bf, state, activity,
+        ) = row
         return LoggedWindow(
             window_id=int(wid),
             session_id=int(sid),
+            activity=ActivityCategory(activity),
             features=WindowFeatures(
                 t_start=t0,
                 t_end=t1,
@@ -186,6 +235,12 @@ class SessionStore:
                 blink_duration=bd,
                 head_pose_change_rate=hpr,
                 ear=ear,
+                torso_lean=tl,
+                head_drop=hd,
+                proximity=prox,
+                hands_near_face=hnf,
+                looking_down=ld,
+                body_fraction=bf,
             ),
             state=DistractionState(state),
         )
@@ -274,6 +329,13 @@ class SessionStore:
             (session_id,),
         )
         return {state: int(count) for state, count in cur.fetchall()}
+
+    def activity_histogram(self, session_id: int) -> dict[str, int]:
+        cur = self._conn.execute(
+            "SELECT activity, COUNT(*) FROM windows WHERE session_id = ? GROUP BY activity",
+            (session_id,),
+        )
+        return {activity: int(count) for activity, count in cur.fetchall()}
 
     def commit(self) -> None:
         self._conn.commit()

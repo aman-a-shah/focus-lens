@@ -32,30 +32,49 @@ class _CaptureThread(threading.Thread):
         self._stop.set()
 
     def run(self) -> None:
+        from contextlib import ExitStack
+
         from ..capture import WebcamCapture
+        from ..context import ActiveAppReader, ActivityClassifier
         from ..face_mesh import FaceMeshTracker
         from ..features import FeatureExtractor
+        from ..pose import PoseTracker
 
         cfg = self.controller.config
-        extractor = FeatureExtractor()
+        extractor = FeatureExtractor(body_min_visibility=cfg.pose.min_visibility)
+        pose_every_n = max(1, cfg.pose.every_n_frames)
+        app_reader = ActiveAppReader(
+            poll_interval_s=cfg.activity.poll_interval_s, enabled=cfg.activity.enabled
+        )
+        activity_classifier = ActivityClassifier(cfg.activity)
         try:
-            with (
-                WebcamCapture(
-                    source=self.source,
-                    width=cfg.capture.width,
-                    height=cfg.capture.height,
-                    target_fps=cfg.capture.target_fps,
-                ) as cap,
-                FaceMeshTracker(cfg.face_mesh) as tracker,
-            ):
-                for frame in cap.frames():
+            with ExitStack() as stack:
+                cap = stack.enter_context(
+                    WebcamCapture(
+                        source=self.source,
+                        width=cfg.capture.width,
+                        height=cfg.capture.height,
+                        target_fps=cfg.capture.target_fps,
+                    )
+                )
+                tracker = stack.enter_context(FaceMeshTracker(cfg.face_mesh))
+                pose_tracker = (
+                    stack.enter_context(PoseTracker(cfg.pose)) if cfg.pose.enabled else None
+                )
+                last_pose = None
+                for n, frame in enumerate(cap.frames()):
                     if self._stop.is_set():
                         break
-                    result = tracker.process(frame.image, timestamp_ms=int(frame.timestamp * 1000))
+                    ts_ms = int(frame.timestamp * 1000)
+                    result = tracker.process(frame.image, timestamp_ms=ts_ms)
+                    if pose_tracker is not None and n % pose_every_n == 0:
+                        last_pose = pose_tracker.process(frame.image, timestamp_ms=ts_ms)
                     features = extractor.extract(
-                        result, frame.image.shape, frame.timestamp, image=frame.image
+                        result, frame.image.shape, frame.timestamp, image=frame.image,
+                        pose=last_pose,
                     )
-                    self.controller.process_frame(features)
+                    activity = activity_classifier.classify(app_reader.read(frame.timestamp))
+                    self.controller.process_frame(features, activity)
         except Exception as exc:  # never let the capture thread crash the UI
             log.error("capture thread stopped: %s", exc)
 
@@ -130,7 +149,11 @@ def run_app(
 
     def refresh() -> None:
         state = controller.current_state
-        status.config(text=str(state) if state else "Watching…")
+        if state is None:
+            status.config(text="Watching…")
+        else:
+            reason = controller.current_reason
+            status.config(text=f"{state} — {reason}" if reason else str(state))
         root.after(300, refresh)
 
     def on_close() -> None:

@@ -14,6 +14,21 @@ face_mesh:
   min_detection_confidence: 0.5
   min_tracking_confidence: 0.5
 
+pose:
+  enabled: true                # body-language sensing (posture, hands/phone)
+  min_pose_detection_confidence: 0.5
+  min_pose_presence_confidence: 0.5
+  min_tracking_confidence: 0.5
+  min_visibility: 0.5          # landmark visibility floor for body features
+  every_n_frames: 1            # run Pose every Nth frame (raise to trade accuracy for FPS)
+
+activity:
+  enabled: true                # read the frontmost app to tell working from doom-scrolling/etc.
+                               # set false for webcam-only (privacy); app titles never leave the device
+  poll_interval_s: 1.0
+  # Keyword lists (lowercased substring match over app name + window title) are user-editable.
+  # Defaults live in focuslens/config.py:ActivityConfig — override any list here to taste.
+
 viz:
   draw_tesselation: false      # off by default — points-only is faster & less noisy
   draw_iris: true
