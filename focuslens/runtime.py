@@ -56,6 +56,7 @@ def run_live(
     db_path: str | None = "focuslens.sqlite",
     notify: bool = True,
     gaze_model: str | None = None,
+    focus_model: str | None = None,
 ) -> None:
     """Capture, track, extract features, classify state, notify, and log the session.
 
@@ -64,7 +65,9 @@ def run_live(
     annotated frame with a face. ``features_csv`` streams per-frame features; ``print_features``
     echoes a throttled line. ``db_path`` (None to disable) is the SQLite session log; ``notify``
     toggles desktop notifications. ``gaze_model`` points at a calibrated per-user gaze
-    checkpoint (roadmap Phase 5); without it the naive proxy is used.
+    checkpoint (roadmap Phase 5); without it the naive proxy is used. ``focus_model`` points at a
+    PersonalFocusNet checkpoint (Phase 7); without it the rule classifier is used. Press 'd' in
+    the preview window to mark "I just noticed I drifted" (Phase 6 retrospective label).
     """
     import cv2
 
@@ -101,8 +104,18 @@ def run_live(
         if db_path is not None:
             store = stack.enter_context(SessionStore(db_path))
             session_id = store.start_session(time.time())
+
+        classifier = None
+        if focus_model is not None:
+            from .focusnet import LearnedClassifier
+
+            classifier = LearnedClassifier.from_checkpoint(focus_model)
+            log.info("Using learned classifier (PersonalFocusNet): %s", focus_model)
         pipeline = AttentionPipeline(
-            store=store, session_id=session_id, notifier=Notifier(enabled=notify)
+            store=store,
+            session_id=session_id,
+            notifier=Notifier(enabled=notify),
+            classifier=classifier,
         )
 
         csv_writer = None
@@ -140,7 +153,11 @@ def run_live(
                     log.info("Saved snapshot -> %s", snapshot_path)
                 if show_window:
                     cv2.imshow(window, annotated)
-                    if cv2.waitKey(1) & 0xFF in _QUIT_KEYS:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("d") and store is not None and session_id is not None:
+                        store.add_mark(session_id, frame.timestamp)
+                        log.info("Marked 'noticed drift' @ %.1fs", frame.timestamp)
+                    elif key in _QUIT_KEYS:
                         break
 
             if max_frames is not None and n >= max_frames:

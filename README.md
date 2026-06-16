@@ -22,6 +22,12 @@ Early scaffold. Current phases:
 - **Phase 5 — Personal calibration** ✅ on-screen 5/9-point routine → fine-tune the population
   gaze head into a per-user checkpoint (`calibrate`), swapped into the live pipeline
   (`live --gaze-model`); reflection-masking + low-light TTA for the iris signal
+- **Phase 6 — Self-supervised labelling** ✅ retrospective "I drifted" marks (press `d`) + weak
+  idle/app-switch events → label-propagation that back-dates distraction onset, stored in SQLite
+  (`label`)
+- **Phase 7 — PersonalFocusNet** ✅ 1D-conv + temporal-attention sequence model with an
+  uncertainty head, trained on the Phase-6 labels (`train-focus`); swaps into the live pipeline
+  behind the rule-classifier interface (`live --focus-model`) with cold-start + uncertainty gating
 
 ## Setup
 
@@ -49,12 +55,24 @@ focuslens train-gaze --arch cnn --epochs 15
 focuslens train-gaze --arch cnn --data checkpoints/mpiifacegaze.npz   # real dataset
 focuslens calibrate --user alice       # on-screen calibration -> per-user gaze checkpoint
 focuslens live --gaze-model checkpoints/gaze_user_alice.pt           # use the calibrated head
+focuslens label --db session.sqlite    # self-supervised labels from marks + weak signals
+focuslens train-focus                  # train PersonalFocusNet (synthetic data by default)
+focuslens train-focus --db session.sqlite                           # train on labelled sessions
+focuslens live --focus-model checkpoints/focusnet.pt                # learned classifier in the loop
 ```
 
 `simulate` runs synthetic behaviour through the **same pipeline** as `live` (windowing →
 classification → notification → SQLite), so the end-to-end logic is verifiable without a
 webcam. `train-gaze` defaults to a self-contained synthetic gaze dataset; for the real data
 run `python scripts/download_mpiifacegaze.py` (manual registration required).
+
+The learned-classifier workflow (Phases 6–7): run `live` (press `d` whenever you notice you
+drifted), then `label` turns those marks plus weak idle/app-switch signals into per-window
+labels — back-dating distraction *onset* before you consciously noticed it. `train-focus --db`
+trains PersonalFocusNet on those labels; `live --focus-model` swaps it in behind the same
+interface as the rule classifier. A cold-start window and an uncertainty gate keep a fresh model
+("day 1 knows nothing") from firing until it's confident. `train-focus` with no `--db` trains on
+synthetic data so the pipeline is runnable immediately.
 
 Per-frame features (one row per frame): EAR (per eye + mean), eye-closed / blink rate /
 last blink duration, head pose (yaw/pitch/roll in degrees), and a naive gaze proxy

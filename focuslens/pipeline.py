@@ -8,6 +8,7 @@ commit → notification → SQLite logging. It is **camera-agnostic** — it con
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from .classifier import RuleClassifier
 from .features import FrameFeatures
@@ -15,6 +16,12 @@ from .notify import Notifier
 from .session import SessionStore
 from .states import DistractionState
 from .window import SequenceBuffer, WindowAggregator, WindowFeatures
+
+
+class Classifier(Protocol):
+    """Anything that maps a window to a state — the rule classifier or PersonalFocusNet."""
+
+    def classify(self, window: WindowFeatures) -> DistractionState: ...
 
 
 @dataclass(frozen=True)
@@ -60,7 +67,7 @@ class AttentionPipeline:
         store: SessionStore | None = None,
         session_id: int | None = None,
         notifier: Notifier | None = None,
-        classifier: RuleClassifier | None = None,
+        classifier: Classifier | None = None,
         window_s: float = 0.2,
         sequence_length: int = 30,
         debounce_windows: int = 2,
